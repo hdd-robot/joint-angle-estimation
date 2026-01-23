@@ -1,0 +1,138 @@
+# =============================================================================
+# REBA 3D - Configuration
+# =============================================================================
+# Ce fichier contient tous les paramètres configurables de l'application.
+# Modifiez les valeurs selon vos besoins.
+
+# -----------------------------------------------------------------------------
+# Interface graphique
+# -----------------------------------------------------------------------------
+gui:
+  # Résolution de la fenêtre
+  width: 1280
+  height: 720
+
+  # Titre de la fenêtre
+  title: "REBA 3D - Analyse Posturale Ergonomique"
+
+  # FPS de l'interface (rafraîchissement)
+  fps: 30
+
+  # Colonnes (largeur en pixels)
+  left_panel_width: 180
+  right_panel_width: 250
+
+# -----------------------------------------------------------------------------
+# Caméra RealSense
+# -----------------------------------------------------------------------------
+realsense:
+  # Résolution de la caméra couleur
+  color_width: 640
+  color_height: 480
+  color_fps: 30
+
+  # Résolution de la caméra profondeur
+  depth_width: 640
+  depth_height: 480
+  depth_fps: 30
+
+  # Lecture en temps réel pour les fichiers .bag
+  # true = lecture à vitesse normale, false = lecture rapide
+  realtime_playback: true
+
+# -----------------------------------------------------------------------------
+# Fichiers et répertoires
+# -----------------------------------------------------------------------------
+paths:
+  # Répertoire des fichiers .bag
+  bag_directory: "bag"
+
+  # Nom du fichier .bag par défaut
+  default_bag_file: "recording.bag"
+
+  # Répertoire de sortie pour les résultats
+  output_directory: "output"
+
+  # Chemin vers OpenPose
+  openpose_path: "~/openpose_alt"
+
+# -----------------------------------------------------------------------------
+# Traitement REBA
+# -----------------------------------------------------------------------------
+reba:
+  # Seuil de confiance pour les keypoints (0.0 - 1.0)
+  confidence_threshold: 0.35
+
+  # Taille de la fenêtre de lissage (en frames)
+  window_size: 30
+
+  # Ordre du polynôme pour le lissage
+  poly_order: 2
+
+  # Seuil de contact au sol pour les pieds (en mètres)
+  feet_contact_threshold: 0.10
+
+  # FPS vidéo pour le calcul des intervalles temporels
+  video_fps: 15
+
+# -----------------------------------------------------------------------------
+# Calibration
+# -----------------------------------------------------------------------------
+calibration:
+  # Durée de la calibration (en secondes)
+  duration: 5
+
+  # Nombre de frames à ignorer au début
+  skip_initial_frames: 1
+
+  # Fichier de sauvegarde de la calibration
+  save_file: "calibration_data.yaml"
+
+# -----------------------------------------------------------------------------
+# Affichage des scores
+# -----------------------------------------------------------------------------
+display:
+  # Afficher les scores par défaut au démarrage
+  show_scores_on_start: true
+
+  # Afficher les angles 3D
+  show_3d_angles: true
+
+  # Afficher les scores 2D (segments)
+  show_2d_scores: true
+
+  # Couleurs des niveaux de risque (BGR)
+  risk_colors:
+    negligible: [0, 200, 0]      # Vert
+    low: [200, 150, 0]           # Cyan
+    medium: [0, 150, 255]        # Orange
+    high: [0, 0, 255]            # Rouge
+    very_high: [136, 47, 99]     # Violet
+
+# -----------------------------------------------------------------------------
+# Logs
+# -----------------------------------------------------------------------------
+logging:
+  # Nombre maximum de lignes dans le panneau de logs
+  max_lines: 35
+
+  # Taille de police des logs
+  font_size: 16
+
+  # Enregistrer les logs dans un fichier
+  save_to_file: false
+  log_file: "reba_3d.log"
+
+# -----------------------------------------------------------------------------
+# Export
+# -----------------------------------------------------------------------------
+export:
+  # Format de sortie pour les résultats
+  # Formats supportés: json, csv
+  format: "json"
+
+  # Inclure les angles bruts dans l'export
+  include_raw_angles: true
+
+  # Inclure les scores détaillés
+  include_detailed_scores: true

@@ -1,0 +1,43 @@
+PROTOCOLE REBA
+
+STEP 1 ENREGISTRER VIDEO AVEC REALSENSE
+
+#cli
+realsense-viewer
+
+On obtient un .bag
+
+STEP 2 GENERATION SQUELETTE OPENPOSE
+
+
+dans RECORD_DATA_3D.py
+on remplace le chemin de la ligne du code suivant par le chemin du .bag crée:
+bag_file = os.path.expanduser("~/STAGE_M2/TEST_LISV_PEOPLE/20250521_174526.bag")
+
+#cli
+
+conda activate POSTURE_POSE
+cd ~/STAGE_M2/PYTHON_STAGE_OPENPOSE
+python3 RECORD_3D_DATA.py 
+#genere un fichier output.avi et out_openpose.avi dans openpose_alt
+
+STEP 3 CALCUL REBA
+
+#cli
+cd ~/STAGE_M2/PYTHON_STAGE_OPENPOSE
+
+#lit le fichier output.avi du dossier openpose_alt
+
+python3 V2_METHODE_REFERENCIEL_3D.py 
+
+#genere un .json avec les scores de risques
+
+STEP 4 VISUALISATION OPENCV avec squelette et score REBA
+
+
+cd ~/STAGE_M2/PYTHON_STAGE_OPENPOSE
+
+#lit le .json
+python3 ANNOTATION_VIDEO.py
+
+#genere un fichier .avi dans openpose_alt
