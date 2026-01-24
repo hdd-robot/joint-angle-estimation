@@ -8,8 +8,9 @@ Interface graphique Pygame avec 3 colonnes:
 """
 
 import threading
+import time
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Dict
 
 import pygame
 import numpy as np
@@ -20,6 +21,12 @@ from reba_3d.gui.components import (
 )
 from reba_3d.config import get_config
 from reba_3d.config.settings import OPENPOSE_MODE, V4L2_DEVICE, V4L2_OPENPOSE_JSON_DIR
+from reba_3d.config.calibration_store import (
+    get_calibration_manager, save_calibration, load_calibration
+)
+from reba_3d.core.angles import (
+    calculate_angles_from_keypoints_2d, compute_calibration_offsets
+)
 from reba_3d.utils.logger import get_logger
 
 # Logger pour ce module
@@ -87,6 +94,12 @@ class REBAApp:
         # OpenPose detector (initialisé au premier besoin)
         self.openpose_detector = None
         self._openpose_initialized = False
+
+        # Calibration data
+        self.calibration_start_time = None
+        self.calibration_angles: List[Dict[str, float]] = []  # Liste des angles collectés
+        self.calibration_duration = self.config.calibration.duration  # Durée en secondes
+        self.calibration_manager = get_calibration_manager()
 
         # Initialisation Pygame
         pygame.init()
@@ -197,7 +210,12 @@ class REBAApp:
         # Message de bienvenue
         self.log_panel.add_info("Application REBA 3D démarrée")
         self.log_panel.add_info(f"Mode: {self.mode}")
-        self.log_panel.add_info("Calibration: Non effectuée")
+
+        # Vérifier le statut de calibration
+        if self.calibration_manager.is_calibrated:
+            self.log_panel.add_success("Calibration: Chargée")
+        else:
+            self.log_panel.add_warning("Calibration: Non effectuée")
 
     def _on_mode_change(self, mode: str) -> None:
         """Callback pour changement de mode."""
@@ -219,12 +237,92 @@ class REBAApp:
 
     def _on_calibration_toggle(self, state: bool) -> None:
         """Callback pour start/stop calibration."""
-        self.calibration_active = state
         if state:
-            self.log_panel.add_info("Calibration démarrée...")
+            # Vérifier que la capture est active
+            if not self.capturing:
+                self.log_panel.add_error("Démarrez la capture d'abord")
+                self.btn_calibration.set_state(False)
+                return
+
+            # Démarrer la calibration
+            self.calibration_active = True
+            self.calibration_angles = []
+            self.calibration_start_time = time.time()
+
+            self.log_panel.add_info(f"Calibration ({self.calibration_duration}s)...")
             self.log_panel.add_warning("Restez en position neutre")
+            logger.info(f"Calibration démarrée pour {self.calibration_duration}s")
+
+            # Lancer un thread pour arrêter la calibration après la durée
+            def calibration_timer():
+                time.sleep(self.calibration_duration)
+                if self.calibration_active:
+                    self._finish_calibration()
+
+            timer_thread = threading.Thread(target=calibration_timer, daemon=True)
+            timer_thread.start()
         else:
-            self.log_panel.add_success("Calibration terminée")
+            # Arrêt manuel de la calibration
+            self._finish_calibration()
+
+    def _finish_calibration(self) -> None:
+        """Termine la calibration et calcule les offsets."""
+        self.calibration_active = False
+        self.btn_calibration.set_state(False)
+
+        n_frames = len(self.calibration_angles)
+        logger.info(f"Calibration terminée: {n_frames} frames collectées")
+
+        if n_frames < 30:
+            self.log_panel.add_error(f"Calibration échouée: {n_frames} frames (min 30)")
+            logger.warning("Pas assez de frames pour la calibration")
+            self.calibration_angles = []
+            self.calibration_start_time = None
+            return
+
+        # Calculer les offsets à partir des angles collectés
+        try:
+            offsets = compute_calibration_offsets(
+                self.calibration_angles,
+                window_size=30,
+                skip_windows=1  # Ignorer la première fenêtre
+            )
+
+            if not offsets:
+                self.log_panel.add_error("Calibration échouée: pas d'angles valides")
+                logger.warning("Aucun offset calculé")
+                return
+
+            # Sauvegarder les offsets
+            metadata = {
+                'frames_collected': n_frames,
+                'duration_seconds': self.calibration_duration,
+                'mode': self.mode,
+            }
+
+            if save_calibration(offsets, metadata=metadata):
+                # Recharger le gestionnaire de calibration
+                self.calibration_manager.reload()
+
+                self.log_panel.add_success(f"Calibration OK ({n_frames} frames)")
+                self.log_panel.add_info("Offsets sauvegardés")
+
+                # Afficher les offsets calculés
+                for name, value in offsets.items():
+                    logger.info(f"  {name}: {value:.2f}°")
+
+                logger.info("Calibration réussie et sauvegardée")
+            else:
+                self.log_panel.add_error("Erreur sauvegarde calibration")
+                logger.error("Échec sauvegarde calibration")
+
+        except Exception as e:
+            self.log_panel.add_error(f"Erreur calibration: {str(e)[:20]}")
+            logger.exception(f"Erreur lors du calcul des offsets: {e}")
+
+        # Réinitialiser les données
+        self.calibration_angles = []
+        self.calibration_start_time = None
 
     def _on_scores_toggle(self, state: bool) -> None:
         """Callback pour afficher/cacher les scores."""
@@ -506,6 +604,7 @@ class REBAApp:
             frame: Image BGR numpy array
         """
         output_frame = frame
+        keypoints = None
 
         # Détection OpenPose si disponible
         if OPENPOSE_MODE == "local":
@@ -517,7 +616,6 @@ class REBAApp:
             if self.openpose_detector is not None:
                 try:
                     output_frame, keypoints = self.openpose_detector.detect(frame)
-                    # TODO: Utiliser keypoints pour calcul REBA
                 except Exception as e:
                     logger.warning(f"Erreur détection: {e}")
 
@@ -525,9 +623,20 @@ class REBAApp:
         with self.frame_lock:
             self.current_frame = output_frame.copy()
 
-        # Si calibration active, collecter les données
-        if self.calibration_active:
-            pass  # Collecter données de calibration
+        # Si calibration active, calculer et collecter les angles
+        if self.calibration_active and keypoints is not None:
+            try:
+                # OpenPose retourne (num_people, 25, 3) - prendre la première personne
+                if len(keypoints) > 0 and len(keypoints.shape) >= 2:
+                    person_keypoints = keypoints[0]  # Première personne détectée
+
+                    # Calculer les angles à partir des keypoints 2D
+                    angles = calculate_angles_from_keypoints_2d(person_keypoints)
+
+                    if angles:
+                        self.calibration_angles.append(angles)
+            except Exception as e:
+                logger.debug(f"Erreur calcul angles: {e}")
 
     def _handle_events(self) -> None:
         """Gère les événements Pygame."""

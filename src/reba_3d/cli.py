@@ -27,6 +27,7 @@ def create_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
+  reba3d gui                                    # Launch interactive GUI
   reba3d capture --bag recording.bag --output ./output
   reba3d analyze --input keypoints_3d.json --output risk_times.json
   reba3d annotate --video output_openpose.avi --risks risk_times.json
@@ -45,6 +46,21 @@ Examples:
         dest="command",
         title="commands",
         description="Available commands"
+    )
+
+    # GUI command
+    gui_parser = subparsers.add_parser(
+        "gui",
+        help="Launch interactive GUI application",
+        description="Start the REBA 3D graphical user interface"
+    )
+    gui_parser.add_argument(
+        "--bag-dir",
+        help="Directory containing .bag files"
+    )
+    gui_parser.add_argument(
+        "--bag",
+        help="Default .bag file to load"
     )
 
     # Capture command
@@ -234,6 +250,27 @@ Examples:
     )
 
     return parser
+
+
+def cmd_gui(args) -> int:
+    """Execute GUI command."""
+    from reba_3d.gui.app import REBAApp
+    from reba_3d.utils.logger import setup_logging
+
+    setup_logging()
+
+    try:
+        app = REBAApp(
+            bag_directory=args.bag_dir,
+            default_bag_name=args.bag
+        )
+        app.run()
+        return 0
+    except Exception as e:
+        print(f"[ERROR] Erreur GUI: {e}")
+        import traceback
+        traceback.print_exc()
+        return 1
 
 
 def cmd_capture(args) -> int:
@@ -462,6 +499,7 @@ def main(argv: Optional[list] = None) -> int:
         return 0
 
     command_handlers = {
+        "gui": cmd_gui,
         "capture": cmd_capture,
         "analyze": cmd_analyze,
         "annotate": cmd_annotate,

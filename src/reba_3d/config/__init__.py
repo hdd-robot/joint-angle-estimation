@@ -25,6 +25,15 @@ from reba_3d.config.yaml_config import (
     ExportConfig,
 )
 
+from reba_3d.config.calibration_store import (
+    CalibrationManager,
+    get_calibration_manager,
+    load_calibration,
+    save_calibration,
+    reset_calibration,
+    DEFAULT_OFFSETS,
+)
+
 __all__ = [
     # Legacy settings
     "OPENPOSE_PATH",
@@ -47,4 +56,11 @@ __all__ = [
     "DisplayConfig",
     "LoggingConfig",
     "ExportConfig",
+    # Calibration store
+    "CalibrationManager",
+    "get_calibration_manager",
+    "load_calibration",
+    "save_calibration",
+    "reset_calibration",
+    "DEFAULT_OFFSETS",
 ]
