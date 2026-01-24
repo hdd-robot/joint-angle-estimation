@@ -25,7 +25,9 @@ from reba_3d.config.calibration_store import (
     get_calibration_manager, save_calibration, load_calibration
 )
 from reba_3d.core.angles import (
-    calculate_angles_from_keypoints_2d, compute_calibration_offsets
+    calculate_angles_from_keypoints_2d,
+    calculate_angles_from_keypoints_3d,
+    compute_calibration_offsets
 )
 from reba_3d.reba.realtime_scorer import RealtimeREBAScorer, REBAScore
 from reba_3d.utils.logger import get_logger
@@ -107,6 +109,15 @@ class REBAApp:
         self.current_reba_score: Optional[REBAScore] = None
         self.current_angles: Dict[str, float] = {}
 
+        # Depth/3D data
+        self.depth_intrinsics = None  # Camera intrinsics for 3D projection
+        self.use_3d = True  # Use 3D angles when available
+
+        # Comparison mode (shows both 2D and 3D scores)
+        self.show_comparison = False
+        self.reba_scorer_2d = RealtimeREBAScorer(buffer_size=10)  # Scorer séparé pour 2D
+        self.current_reba_score_2d: Optional[REBAScore] = None
+
         # Initialisation Pygame
         pygame.init()
         pygame.display.set_caption(self.config.gui.title)
@@ -185,6 +196,17 @@ class REBAApp:
             color_on=GRAY,
             color_off=GREEN,
             initial_state=True
+        )
+        y += button_height + padding
+
+        # --- Bouton Comparaison 2D/3D ---
+        self.btn_comparison = ToggleButton(
+            x, y, button_width, button_height,
+            text_on="Mode Normal",
+            text_off="Comparer 2D/3D",
+            callback=self._on_comparison_toggle,
+            color_on=ORANGE,
+            color_off=BLUE
         )
         y += button_height + padding
 
@@ -339,6 +361,14 @@ class REBAApp:
         else:
             self.log_panel.add_info("Affichage des scores désactivé")
 
+    def _on_comparison_toggle(self, state: bool) -> None:
+        """Callback pour activer/désactiver le mode comparaison 2D/3D."""
+        self.show_comparison = state
+        if state:
+            self.log_panel.add_info("Mode comparaison 2D/3D activé")
+        else:
+            self.log_panel.add_info("Mode comparaison désactivé")
+
     def _on_pause_toggle(self, state: bool) -> None:
         """Callback pour pause/reprendre la vidéo."""
         self.paused = state
@@ -417,24 +447,32 @@ class REBAApp:
                 rs.format.z16, rs_cfg.depth_fps
             )
 
-            pipeline.start(rs_config)
+            profile = pipeline.start(rs_config)
             logger.info("Caméra RealSense connectée")
             self.log_panel.add_success("Caméra RealSense connectée")
 
+            # Aligner depth sur color
             align = rs.align(rs.stream.color)
+
+            # Récupérer les intrinsics de la caméra COLOR (car depth aligné sur color)
+            color_profile = profile.get_stream(rs.stream.color).as_video_stream_profile()
+            self.depth_intrinsics = color_profile.get_intrinsics()
+            logger.info(f"Intrinsics 3D (aligned): {self.depth_intrinsics.width}x{self.depth_intrinsics.height}")
 
             while not self.stop_capture.is_set():
                 frames = pipeline.wait_for_frames()
                 aligned = align.process(frames)
                 color_frame = aligned.get_color_frame()
+                depth_frame = aligned.get_depth_frame()  # Frame depth alignée
 
-                if color_frame:
+                if color_frame and depth_frame:
                     frame = np.asanyarray(color_frame.get_data())
                     # En mode pause inline, on continue de capturer mais on n'actualise pas l'affichage
                     if not self.pause_event.is_set():
-                        self._process_frame(frame)
+                        self._process_frame(frame, depth_frame)
 
             pipeline.stop()
+            self.depth_intrinsics = None
             logger.info("Caméra RealSense déconnectée")
             self.log_panel.add_info("Caméra RealSense déconnectée")
 
@@ -472,9 +510,21 @@ class REBAApp:
             playback = device.as_playback()
             playback.set_real_time(self.config.realsense.realtime_playback)
 
+            # Aligner depth sur color
             align = rs.align(rs.stream.color)
             logger.info(f"Fichier .bag chargé: {bag_path}")
             self.log_panel.add_success(f"Fichier .bag chargé")
+
+            # Récupérer les intrinsics depuis le stream COLOR (car depth aligné sur color)
+            try:
+                color_profile = profile.get_stream(rs.stream.color).as_video_stream_profile()
+                self.depth_intrinsics = color_profile.get_intrinsics()
+                logger.info(f"Intrinsics 3D (aligned): {self.depth_intrinsics.width}x{self.depth_intrinsics.height}")
+                self.log_panel.add_success("Mode 3D activé")
+            except Exception as e:
+                logger.warning(f"Impossible d'obtenir les intrinsics: {e}")
+                self.depth_intrinsics = None
+                self.log_panel.add_warning("Mode 2D (pas de depth)")
 
             # Initialiser V4L2 si mode v4l2 activé
             if OPENPOSE_MODE == "v4l2":
@@ -485,6 +535,7 @@ class REBAApp:
                     first_frames = pipeline.wait_for_frames(timeout_ms=5000)
                     first_aligned = align.process(first_frames)
                     first_color = first_aligned.get_color_frame()
+                    first_depth = first_aligned.get_depth_frame()
 
                     if first_color:
                         width = first_color.get_width()
@@ -498,11 +549,11 @@ class REBAApp:
                         logger.info(f"V4L2 streaming activé: {V4L2_DEVICE}")
                         self.log_panel.add_success(f"V4L2: {V4L2_DEVICE}")
 
-                        # Traiter le premier frame
+                        # Traiter le premier frame avec depth
                         frame = np.asanyarray(first_color.get_data())
                         frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
                         v4l2_writer.write(frame)
-                        self._process_frame(frame)
+                        self._process_frame(frame, first_depth)
 
                 except Exception as e:
                     logger.error(f"Erreur V4L2: {e}")
@@ -528,6 +579,7 @@ class REBAApp:
                     frames = pipeline.wait_for_frames(timeout_ms=1000)
                     aligned = align.process(frames)
                     color_frame = aligned.get_color_frame()
+                    depth_frame = aligned.get_depth_frame()  # Frame depth alignée
 
                     if color_frame:
                         frame = np.asanyarray(color_frame.get_data())
@@ -537,7 +589,8 @@ class REBAApp:
                         if v4l2_writer is not None:
                             v4l2_writer.write(frame)
 
-                        self._process_frame(frame)
+                        # Passer le depth_frame pour calcul 3D
+                        self._process_frame(frame, depth_frame)
                         frame_count += 1
 
                         # Log périodique
@@ -551,6 +604,7 @@ class REBAApp:
                     break
 
             pipeline.stop()
+            self.depth_intrinsics = None
 
         except ImportError:
             logger.error("pyrealsense2 non installé")
@@ -602,12 +656,13 @@ class REBAApp:
             self.openpose_detector = None
             return False
 
-    def _process_frame(self, frame) -> None:
+    def _process_frame(self, frame, depth_frame=None) -> None:
         """
-        Traite un frame (détection OpenPose, calcul REBA).
+        Traite un frame (détection OpenPose, calcul REBA 3D).
 
         Args:
             frame: Image BGR numpy array
+            depth_frame: RealSense depth frame aligné (optionnel)
         """
         import cv2
 
@@ -633,8 +688,22 @@ class REBAApp:
                 if len(keypoints) > 0 and len(keypoints.shape) >= 2:
                     person_keypoints = keypoints[0]
 
-                    # Calculer les angles bruts
-                    raw_angles = calculate_angles_from_keypoints_2d(person_keypoints)
+                    # Calculer les angles (3D si depth disponible, sinon 2D)
+                    raw_angles = None
+
+                    if self.use_3d and depth_frame is not None and self.depth_intrinsics is not None:
+                        # Calcul 3D avec projection de profondeur
+                        raw_angles = calculate_angles_from_keypoints_3d(
+                            person_keypoints,
+                            depth_frame,
+                            self.depth_intrinsics
+                        )
+                        # Fallback 2D si pas assez d'angles 3D
+                        if len(raw_angles) < 4:
+                            raw_angles = calculate_angles_from_keypoints_2d(person_keypoints)
+                    else:
+                        # Calcul 2D classique
+                        raw_angles = calculate_angles_from_keypoints_2d(person_keypoints)
 
                     if raw_angles:
                         # Mode calibration: collecter les angles
@@ -647,8 +716,15 @@ class REBAApp:
                             calibrated_angles = self.calibration_manager.apply_all(raw_angles)
                             self.current_angles = calibrated_angles
 
-                            # Calculer le score REBA
+                            # Calculer le score REBA principal (3D si dispo)
                             self.current_reba_score = self.reba_scorer.update(calibrated_angles)
+
+                            # Mode comparaison: calculer aussi le score 2D
+                            if self.show_comparison and depth_frame is not None:
+                                raw_angles_2d = calculate_angles_from_keypoints_2d(person_keypoints)
+                                if raw_angles_2d:
+                                    calibrated_2d = self.calibration_manager.apply_all(raw_angles_2d)
+                                    self.current_reba_score_2d = self.reba_scorer_2d.update(calibrated_2d)
 
                             # Dessiner le score sur la frame si activé
                             if self.show_scores and self.current_reba_score:
@@ -679,13 +755,26 @@ class REBAApp:
         score = self.current_reba_score
         h, w = frame.shape[:2]
 
+        # Mode comparaison: affichage côte à côte 2D/3D
+        if self.show_comparison and self.current_reba_score_2d is not None:
+            return self._draw_comparison_overlay(frame)
+
         # Couleur de fond basée sur le risque
         color = score.risk_color
 
         # Rectangle de fond semi-transparent
         overlay = frame.copy()
-        cv2.rectangle(overlay, (10, 10), (200, 120), (0, 0, 0), -1)
+        cv2.rectangle(overlay, (10, 10), (200, 145), (0, 0, 0), -1)
         cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
+
+        # Indicateur 2D/3D
+        mode_3d = self.use_3d and self.depth_intrinsics is not None
+        mode_text = "3D" if mode_3d else "2D"
+        mode_color = (0, 255, 0) if mode_3d else (100, 100, 255)
+        cv2.putText(
+            frame, f"[{mode_text}]",
+            (160, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.5, mode_color, 1
+        )
 
         # Texte du score REBA
         cv2.putText(
@@ -710,6 +799,81 @@ class REBAApp:
         bar_width = int((score.final_score / 12) * 180)
         cv2.rectangle(frame, (10, 125), (10 + bar_width, 135), color, -1)
         cv2.rectangle(frame, (10, 125), (190, 135), (100, 100, 100), 1)
+
+        return frame
+
+    def _draw_comparison_overlay(self, frame) -> np.ndarray:
+        """
+        Dessine l'overlay comparaison 2D vs 3D sur le frame.
+
+        Args:
+            frame: Image BGR
+
+        Returns:
+            Frame avec overlay comparaison
+        """
+        import cv2
+
+        score_3d = self.current_reba_score
+        score_2d = self.current_reba_score_2d
+
+        # Rectangle de fond semi-transparent plus large
+        overlay = frame.copy()
+        cv2.rectangle(overlay, (10, 10), (320, 160), (0, 0, 0), -1)
+        cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
+
+        # Titre
+        cv2.putText(
+            frame, "COMPARAISON 2D vs 3D",
+            (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1
+        )
+
+        # Score 3D (colonne gauche)
+        cv2.putText(
+            frame, "3D",
+            (50, 55), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2
+        )
+        cv2.putText(
+            frame, f"REBA: {score_3d.final_score}",
+            (20, 85), cv2.FONT_HERSHEY_SIMPLEX, 0.8, score_3d.risk_color, 2
+        )
+        cv2.putText(
+            frame, f"{score_3d.risk_level[:10]}",
+            (20, 110), cv2.FONT_HERSHEY_SIMPLEX, 0.5, score_3d.risk_color, 1
+        )
+
+        # Barre 3D
+        bar_3d = int((score_3d.final_score / 12) * 130)
+        cv2.rectangle(frame, (20, 120), (20 + bar_3d, 130), score_3d.risk_color, -1)
+        cv2.rectangle(frame, (20, 120), (150, 130), (100, 100, 100), 1)
+
+        # Score 2D (colonne droite)
+        cv2.putText(
+            frame, "2D",
+            (210, 55), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (100, 100, 255), 2
+        )
+        cv2.putText(
+            frame, f"REBA: {score_2d.final_score}",
+            (170, 85), cv2.FONT_HERSHEY_SIMPLEX, 0.8, score_2d.risk_color, 2
+        )
+        cv2.putText(
+            frame, f"{score_2d.risk_level[:10]}",
+            (170, 110), cv2.FONT_HERSHEY_SIMPLEX, 0.5, score_2d.risk_color, 1
+        )
+
+        # Barre 2D
+        bar_2d = int((score_2d.final_score / 12) * 130)
+        cv2.rectangle(frame, (170, 120), (170 + bar_2d, 130), score_2d.risk_color, -1)
+        cv2.rectangle(frame, (170, 120), (300, 130), (100, 100, 100), 1)
+
+        # Différence
+        diff = score_3d.final_score - score_2d.final_score
+        diff_text = f"Diff: {diff:+d}"
+        diff_color = (0, 255, 255) if diff != 0 else (200, 200, 200)
+        cv2.putText(
+            frame, diff_text,
+            (120, 150), cv2.FONT_HERSHEY_SIMPLEX, 0.6, diff_color, 1
+        )
 
         return frame
 
@@ -738,6 +902,7 @@ class REBAApp:
             self.btn_pause.handle_event(event)
             self.btn_calibration.handle_event(event)
             self.btn_scores.handle_event(event)
+            self.btn_comparison.handle_event(event)
             self.btn_exit.handle_event(event)
 
     def _update(self) -> None:
@@ -776,6 +941,7 @@ class REBAApp:
         self.btn_pause.draw(self.screen)
         self.btn_calibration.draw(self.screen)
         self.btn_scores.draw(self.screen)
+        self.btn_comparison.draw(self.screen)
         self.btn_exit.draw(self.screen)
 
         # Zone vidéo

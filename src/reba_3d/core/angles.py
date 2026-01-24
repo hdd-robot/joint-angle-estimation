@@ -341,3 +341,157 @@ def apply_calibration(angle: float, offset: float) -> float:
     if angle == 0.0:
         return 0.0
     return abs(angle - offset)
+
+
+def project_keypoint_to_3d(
+    x: float, y: float,
+    depth_frame,
+    intrinsics
+) -> Optional[np.ndarray]:
+    """
+    Project a 2D keypoint to 3D using depth data.
+
+    Uses RealSense rs2_deproject_pixel_to_point to convert
+    pixel coordinates + depth to 3D point in meters.
+
+    Args:
+        x: Pixel x coordinate
+        y: Pixel y coordinate
+        depth_frame: RealSense depth frame
+        intrinsics: Camera intrinsics
+
+    Returns:
+        3D point [x, y, z] in meters or None if invalid
+    """
+    import pyrealsense2 as rs
+
+    # Ensure coordinates are within frame bounds
+    width = depth_frame.get_width()
+    height = depth_frame.get_height()
+
+    px = int(round(x))
+    py = int(round(y))
+
+    if px < 0 or px >= width or py < 0 or py >= height:
+        return None
+
+    # Get depth value at pixel
+    depth = depth_frame.get_distance(px, py)
+
+    if depth <= 0 or depth > 10.0:  # Invalid or too far
+        return None
+
+    # Deproject pixel to 3D point
+    point_3d = rs.rs2_deproject_pixel_to_point(intrinsics, [x, y], depth)
+
+    return np.array(point_3d)
+
+
+def calculate_angles_from_keypoints_3d(
+    keypoints: np.ndarray,
+    depth_frame,
+    intrinsics
+) -> Dict[str, float]:
+    """
+    Calculate all body segment angles from OpenPose keypoints using depth.
+
+    Projects 2D keypoints to 3D using depth data, then calculates
+    angles between body segments in true 3D space.
+
+    Args:
+        keypoints: OpenPose keypoints array (25x3 with x, y, confidence)
+        depth_frame: RealSense depth frame
+        intrinsics: Camera intrinsics
+
+    Returns:
+        Dictionary of angles (same keys as calculate_angles_from_keypoints_2d)
+    """
+    angles = {}
+
+    def get_3d(name: str) -> Optional[np.ndarray]:
+        """Get 3D point for a keypoint using depth projection."""
+        if name not in KEYPOINT_INDICES:
+            return None
+        idx = KEYPOINT_INDICES[name]
+        if idx >= len(keypoints):
+            return None
+        kp = keypoints[idx]
+        # Check if keypoint is valid (x, y, confidence)
+        if len(kp) >= 2 and kp[0] != 0 and kp[1] != 0:
+            return project_keypoint_to_3d(kp[0], kp[1], depth_frame, intrinsics)
+        return None
+
+    # Extract 3D keypoints
+    nose = get_3d("Nose")
+    neck = get_3d("Neck")
+    mid_hip = get_3d("MidHip")
+
+    r_shoulder = get_3d("RShoulder")
+    r_elbow = get_3d("RElbow")
+    r_wrist = get_3d("RWrist")
+    r_hip = get_3d("RHip")
+    r_knee = get_3d("RKnee")
+    r_ankle = get_3d("RAnkle")
+
+    l_shoulder = get_3d("LShoulder")
+    l_elbow = get_3d("LElbow")
+    l_wrist = get_3d("LWrist")
+    l_hip = get_3d("LHip")
+    l_knee = get_3d("LKnee")
+    l_ankle = get_3d("LAnkle")
+
+    # Calculate angles (same as 2D version but with real 3D coordinates)
+    if nose is not None and neck is not None and mid_hip is not None:
+        angles["cou"] = calculate_angle(nose, neck, mid_hip)
+
+    if mid_hip is not None and r_shoulder is not None and r_elbow is not None:
+        angles["epaule_droite"] = calculate_angle(mid_hip, r_shoulder, r_elbow)
+
+    if mid_hip is not None and l_shoulder is not None and l_elbow is not None:
+        angles["epaule_gauche"] = calculate_angle(mid_hip, l_shoulder, l_elbow)
+
+    if r_shoulder is not None and r_elbow is not None and r_wrist is not None:
+        angles["coude_droit"] = calculate_angle(r_shoulder, r_elbow, r_wrist)
+
+    if l_shoulder is not None and l_elbow is not None and l_wrist is not None:
+        angles["coude_gauche"] = calculate_angle(l_shoulder, l_elbow, l_wrist)
+
+    if r_hip is not None and r_knee is not None and r_ankle is not None:
+        angles["genou_droit"] = calculate_angle(r_hip, r_knee, r_ankle)
+
+    if l_hip is not None and l_knee is not None and l_ankle is not None:
+        angles["genou_gauche"] = calculate_angle(l_hip, l_knee, l_ankle)
+
+    if neck is not None and mid_hip is not None and l_hip is not None:
+        angles["hanche"] = calculate_angle(neck, mid_hip, l_hip)
+
+    return angles
+
+
+def calculate_angles_both_2d_3d(
+    keypoints: np.ndarray,
+    depth_frame=None,
+    intrinsics=None
+) -> Dict[str, Dict[str, float]]:
+    """
+    Calculate both 2D and 3D angles for comparison.
+
+    Args:
+        keypoints: OpenPose keypoints array
+        depth_frame: RealSense depth frame (optional)
+        intrinsics: Camera intrinsics (optional)
+
+    Returns:
+        Dictionary with "2d" and "3d" keys, each containing angle dict
+    """
+    result = {
+        "2d": calculate_angles_from_keypoints_2d(keypoints),
+        "3d": {}
+    }
+
+    if depth_frame is not None and intrinsics is not None:
+        result["3d"] = calculate_angles_from_keypoints_3d(
+            keypoints, depth_frame, intrinsics
+        )
+
+    return result
