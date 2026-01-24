@@ -117,9 +117,9 @@ class REBAAssessor:
         pertinent_frames = classify_frames(df)
         df = filter_pertinent_frames(df, pertinent_frames)
 
-        print(f"✅ {len(pertinent_frames['face'])} frames de vue de face détectées.")
-        print(f"✅ {len(pertinent_frames['profil_droit'])} frames de profil droit détectées.")
-        print(f"✅ {len(pertinent_frames['profil_gauche'])} frames de profil gauche détectées.")
+        print(f"[OK] {len(pertinent_frames['face'])} frames de vue de face détectées.")
+        print(f"[OK] {len(pertinent_frames['profil_droit'])} frames de profil droit détectées.")
+        print(f"[OK] {len(pertinent_frames['profil_gauche'])} frames de profil gauche détectées.")
 
         # First pass: compute smoothed positions and raw angles
         self._first_pass(df)
@@ -451,7 +451,7 @@ class REBAAssessor:
         """Print a summary of the analysis results."""
         from reba_3d.config.settings import ANSI_COLORS
 
-        print("\n📊 Risques d'après REBA:")
+        print("\n[STATS] Risques d'après REBA:")
         for i, (label, recalc) in enumerate(
             zip(self.scores["risk_labels"], self.scores["recalculated"]),
             start=1
@@ -496,6 +496,6 @@ def assess_video(
         risk_times_video = assessor.get_risk_times_for_video()
         with open(output_path, 'w') as f:
             json.dump(risk_times_video, f, indent=2)
-        print(f"\n✅ Intervalles REBA exportés vers {output_path}")
+        print(f"\n[OK] Intervalles REBA exportés vers {output_path}")
 
     return results

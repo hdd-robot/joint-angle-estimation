@@ -91,10 +91,10 @@ class FrameViewer:
 
     def print_stats(self) -> None:
         """Print frame classification statistics."""
-        print(f"✅ {len(self.pertinent_frames['face'])} frames de vue de face détectées.")
-        print(f"✅ {len(self.pertinent_frames['profil_droit'])} frames de vue de profil droit détectées.")
-        print(f"✅ {len(self.pertinent_frames['profil_gauche'])} frames de vue de profil gauche détectées.")
-        print(f"✅ {len(self.all_frames)} frames pertinentes totales détectées.")
+        print(f"[OK] {len(self.pertinent_frames['face'])} frames de vue de face détectées.")
+        print(f"[OK] {len(self.pertinent_frames['profil_droit'])} frames de vue de profil droit détectées.")
+        print(f"[OK] {len(self.pertinent_frames['profil_gauche'])} frames de vue de profil gauche détectées.")
+        print(f"[OK] {len(self.all_frames)} frames pertinentes totales détectées.")
 
     def run(self) -> None:
         """
@@ -103,13 +103,13 @@ class FrameViewer:
         Opens a window displaying pertinent frames with keyboard navigation.
         """
         if not self.all_frames:
-            print("❌ Aucune frame pertinente détectée, arrêt du programme.")
+            print("[ERROR] Aucune frame pertinente détectée, arrêt du programme.")
             return
 
         self.print_stats()
 
         with VideoReader(self.video_path) as reader:
-            print(f"✅ Vidéo chargée: {self.video_path}")
+            print(f"[OK] Vidéo chargée: {self.video_path}")
             print(f"- FPS: {reader.fps}")
             print(f"- Nombre de frames: {reader.frame_count}")
             print(f"- Résolution: {reader.width}x{reader.height}")

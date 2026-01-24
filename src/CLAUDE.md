@@ -124,10 +124,12 @@ Default settings in `reba_3d/config/settings.py`:
 - **WINDOW_SIZE**: 30 frames (~2 seconds at 15 FPS)
 - **POLY_ORDER**: 2 (polynomial order for smoothing)
 - **Keypoint model**: OpenPose 25-point (BODY_25)
+- **RECORDING_ENABLED**: `false` (video recording disabled by default)
 
 Settings can be overridden via:
-1. CLI arguments (`--openpose`, `--output`, etc.)
-2. Environment variables: `REBA_OPENPOSE_PATH`, `REBA_OUTPUT_DIR`
+1. CLI arguments (`--openpose`, `--output`, `--save-video`, `--no-save-video`, etc.)
+2. Environment variables: `REBA_OPENPOSE_PATH`, `REBA_OUTPUT_DIR`, `REBA_RECORDING_ENABLED`
+3. Config file: `config.yaml` (`recording.enabled: true`)
 
 ## Dependencies
 

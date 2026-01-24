@@ -165,7 +165,7 @@ def annotate_with_reba(
 
     # Open input video
     with VideoReader(input_video) as reader:
-        print(f"✅ Vidéo chargée: {input_video}")
+        print(f"[OK] Vidéo chargée: {input_video}")
         print(f"- FPS: {reader.fps}")
         print(f"- Nombre de frames: {reader.frame_count}")
         print(f"- Résolution: {reader.width}x{reader.height}")
@@ -197,5 +197,5 @@ def annotate_with_reba(
                 cv2.destroyAllWindows()
                 cv2.waitKey(1)
 
-    print(f"✅ Vidéo annotée sauvegardée: {output_path}")
+    print(f"[OK] Vidéo annotée sauvegardée: {output_path}")
     return str(output_path)

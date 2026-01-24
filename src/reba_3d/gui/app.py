@@ -19,6 +19,7 @@ from reba_3d.gui.components import (
     WHITE, BLACK, GRAY, DARK_GRAY, GREEN, RED, BLUE, ORANGE
 )
 from reba_3d.config import get_config
+from reba_3d.config.settings import OPENPOSE_MODE, V4L2_DEVICE, V4L2_OPENPOSE_JSON_DIR
 from reba_3d.utils.logger import get_logger
 
 # Logger pour ce module
@@ -82,6 +83,10 @@ class REBAApp:
         self.capture_thread: Optional[threading.Thread] = None
         self.stop_capture = threading.Event()
         self.pause_event = threading.Event()  # Event pour gérer la pause
+
+        # OpenPose detector (initialisé au premier besoin)
+        self.openpose_detector = None
+        self._openpose_initialized = False
 
         # Initialisation Pygame
         pygame.init()
@@ -337,7 +342,7 @@ class REBAApp:
             self.log_panel.add_error(f"Erreur caméra: {str(e)[:30]}")
 
     def _capture_offline(self) -> None:
-        """Thread de capture en mode offline (fichier .bag)."""
+        """Thread de capture en mode offline (fichier .bag) avec streaming V4L2."""
         bag_path = self.bag_directory / self.default_bag_name
 
         if not bag_path.exists():
@@ -347,8 +352,12 @@ class REBAApp:
             self.btn_capture.set_state(False)
             return
 
+        v4l2_writer = None
+
         try:
             import pyrealsense2 as rs
+            import cv2
+            import time
 
             pipeline = rs.pipeline()
             config = rs.config()
@@ -363,7 +372,40 @@ class REBAApp:
             logger.info(f"Fichier .bag chargé: {bag_path}")
             self.log_panel.add_success(f"Fichier .bag chargé")
 
+            # Initialiser V4L2 si mode v4l2 activé
+            if OPENPOSE_MODE == "v4l2":
+                try:
+                    from reba_3d.capture.v4l2_stream import V4L2Writer
+
+                    # Obtenir dimensions depuis le premier frame
+                    first_frames = pipeline.wait_for_frames(timeout_ms=5000)
+                    first_aligned = align.process(first_frames)
+                    first_color = first_aligned.get_color_frame()
+
+                    if first_color:
+                        width = first_color.get_width()
+                        height = first_color.get_height()
+
+                        v4l2_writer = V4L2Writer(
+                            device=V4L2_DEVICE,
+                            width=width,
+                            height=height,
+                        )
+                        logger.info(f"V4L2 streaming activé: {V4L2_DEVICE}")
+                        self.log_panel.add_success(f"V4L2: {V4L2_DEVICE}")
+
+                        # Traiter le premier frame
+                        frame = np.asanyarray(first_color.get_data())
+                        frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                        v4l2_writer.write(frame)
+                        self._process_frame(frame)
+
+                except Exception as e:
+                    logger.error(f"Erreur V4L2: {e}")
+                    self.log_panel.add_error(f"V4L2 erreur: {str(e)[:25]}")
+
             was_paused = False
+            frame_count = 0
 
             while not self.stop_capture.is_set():
                 # Gérer la pause pour le mode offline
@@ -371,8 +413,6 @@ class REBAApp:
                     if not was_paused:
                         playback.pause()
                         was_paused = True
-                    # Attendre un peu pour ne pas surcharger le CPU
-                    import time
                     time.sleep(0.05)
                     continue
                 else:
@@ -387,9 +427,18 @@ class REBAApp:
 
                     if color_frame:
                         frame = np.asanyarray(color_frame.get_data())
-                        import cv2
                         frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+
+                        # Écrire sur V4L2 si disponible
+                        if v4l2_writer is not None:
+                            v4l2_writer.write(frame)
+
                         self._process_frame(frame)
+                        frame_count += 1
+
+                        # Log périodique
+                        if frame_count % 100 == 0:
+                            logger.debug(f"Frame {frame_count} traité")
 
                 except RuntimeError:
                     # Fin du fichier
@@ -405,9 +454,49 @@ class REBAApp:
         except Exception as e:
             logger.exception(f"Erreur lecture: {e}")
             self.log_panel.add_error(f"Erreur lecture: {str(e)[:30]}")
+        finally:
+            # Fermer V4L2 writer
+            if v4l2_writer is not None:
+                v4l2_writer.close()
+                logger.info("V4L2 writer fermé")
 
         self.capturing = False
         self.btn_capture.set_state(False)
+
+    def _init_openpose(self) -> bool:
+        """
+        Initialise OpenPose detector si mode local.
+
+        Returns:
+            True si initialisé avec succès, False sinon
+        """
+        if self._openpose_initialized:
+            return self.openpose_detector is not None
+
+        self._openpose_initialized = True
+
+        if OPENPOSE_MODE != "local":
+            logger.info(f"Mode OpenPose: {OPENPOSE_MODE} (pas d'init local)")
+            return False
+
+        try:
+            from reba_3d.capture.realsense_capture import OpenPoseDetector
+            from reba_3d.config.settings import OPENPOSE_PATH
+
+            logger.info(f"Initialisation OpenPose: {OPENPOSE_PATH}")
+            self.log_panel.add_info("Init OpenPose...")
+
+            self.openpose_detector = OpenPoseDetector(OPENPOSE_PATH)
+
+            logger.info("OpenPose initialisé avec succès")
+            self.log_panel.add_success("OpenPose OK")
+            return True
+
+        except Exception as e:
+            logger.error(f"Erreur init OpenPose: {e}")
+            self.log_panel.add_error(f"OpenPose erreur: {str(e)[:25]}")
+            self.openpose_detector = None
+            return False
 
     def _process_frame(self, frame) -> None:
         """
@@ -416,11 +505,26 @@ class REBAApp:
         Args:
             frame: Image BGR numpy array
         """
-        # Pour l'instant, juste afficher le frame
-        with self.frame_lock:
-            self.current_frame = frame.copy()
+        output_frame = frame
 
-        # TODO: Intégrer OpenPose et calcul REBA
+        # Détection OpenPose si disponible
+        if OPENPOSE_MODE == "local":
+            # Initialiser OpenPose au premier appel
+            if not self._openpose_initialized:
+                self._init_openpose()
+
+            # Exécuter la détection
+            if self.openpose_detector is not None:
+                try:
+                    output_frame, keypoints = self.openpose_detector.detect(frame)
+                    # TODO: Utiliser keypoints pour calcul REBA
+                except Exception as e:
+                    logger.warning(f"Erreur détection: {e}")
+
+        # Afficher le frame (avec ou sans skeleton)
+        with self.frame_lock:
+            self.current_frame = output_frame.copy()
+
         # Si calibration active, collecter les données
         if self.calibration_active:
             pass  # Collecter données de calibration

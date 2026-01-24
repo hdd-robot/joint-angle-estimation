@@ -10,8 +10,34 @@ import os
 # Paths (modifiable via CLI or environment variables)
 # =============================================================================
 
-OPENPOSE_PATH = os.environ.get("REBA_OPENPOSE_PATH", os.path.expanduser("~/openpose_alt"))
-OUTPUT_DIR = os.environ.get("REBA_OUTPUT_DIR", os.path.expanduser("~/openpose_alt"))
+OPENPOSE_PATH = os.environ.get("REBA_OPENPOSE_PATH", "/home/hdd/openpose")
+OUTPUT_DIR = os.environ.get("REBA_OUTPUT_DIR", os.path.expanduser("~/openpose_output"))
+
+# =============================================================================
+# OpenPose execution mode
+# =============================================================================
+
+# Mode d'exécution:
+# - "local": OpenPose installé sur la machine (pyopenpose)
+# - "v4l2": OpenPose via Docker avec streaming V4L2 (temps réel)
+OPENPOSE_MODE = os.environ.get("REBA_OPENPOSE_MODE", "local")
+
+# Configuration V4L2 - streaming temps réel
+# Note: /dev/shm est un tmpfs (RAM) pour une latence minimale
+V4L2_DEVICE = os.environ.get("REBA_V4L2_DEVICE", "/dev/video10")
+V4L2_OPENPOSE_JSON_DIR = os.environ.get("REBA_V4L2_JSON_DIR", "/dev/shm/openpose_json")
+V4L2_DEPTH_BUFFER_SIZE = int(os.environ.get("REBA_V4L2_BUFFER_SIZE", "60"))  # Buffer circulaire depth
+
+# =============================================================================
+# Recording settings
+# =============================================================================
+
+# Activer l'enregistrement des vidéos (par défaut: non)
+RECORDING_ENABLED = os.environ.get("REBA_RECORDING_ENABLED", "false").lower() == "true"
+RECORDING_CODEC = os.environ.get("REBA_RECORDING_CODEC", "XVID")
+SAVE_RAW_VIDEO = os.environ.get("REBA_SAVE_RAW_VIDEO", "true").lower() == "true"
+SAVE_OPENPOSE_VIDEO = os.environ.get("REBA_SAVE_OPENPOSE_VIDEO", "true").lower() == "true"
+SAVE_ANNOTATED_VIDEO = os.environ.get("REBA_SAVE_ANNOTATED_VIDEO", "true").lower() == "true"
 
 # =============================================================================
 # Processing thresholds

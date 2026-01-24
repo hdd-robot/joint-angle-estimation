@@ -9,7 +9,14 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from reba_3d.config.settings import OPENPOSE_PATH, OUTPUT_DIR
+from reba_3d.config.settings import (
+    OPENPOSE_PATH,
+    OUTPUT_DIR,
+    OPENPOSE_MODE,
+    V4L2_DEVICE,
+    V4L2_OPENPOSE_JSON_DIR,  # Default: /dev/shm/openpose_json (RAM)
+    RECORDING_ENABLED,
+)
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -59,12 +66,39 @@ Examples:
     capture_parser.add_argument(
         "--openpose", "-p",
         default=OPENPOSE_PATH,
-        help=f"Path to OpenPose installation (default: {OPENPOSE_PATH})"
+        help=f"Path to OpenPose installation for local mode (default: {OPENPOSE_PATH})"
+    )
+    capture_parser.add_argument(
+        "--openpose-mode", "-m",
+        choices=["local", "v4l2"],
+        default=OPENPOSE_MODE,
+        help=f"OpenPose execution mode (default: {OPENPOSE_MODE})"
+    )
+    capture_parser.add_argument(
+        "--v4l2-device",
+        default=V4L2_DEVICE,
+        help=f"V4L2 loopback device for 'v4l2' mode (default: {V4L2_DEVICE})"
+    )
+    capture_parser.add_argument(
+        "--v4l2-json-dir",
+        default=V4L2_OPENPOSE_JSON_DIR,
+        help=f"OpenPose JSON output directory for 'v4l2' mode (default: {V4L2_OPENPOSE_JSON_DIR})"
     )
     capture_parser.add_argument(
         "--no-preview",
         action="store_true",
         help="Disable preview window"
+    )
+    capture_parser.add_argument(
+        "--save-video",
+        action="store_true",
+        default=None,
+        help="Enable video recording (default: from config)"
+    )
+    capture_parser.add_argument(
+        "--no-save-video",
+        action="store_true",
+        help="Disable video recording"
     )
 
     # Analyze command
@@ -164,12 +198,39 @@ Examples:
     pipeline_parser.add_argument(
         "--openpose", "-p",
         default=OPENPOSE_PATH,
-        help=f"Path to OpenPose installation (default: {OPENPOSE_PATH})"
+        help=f"Path to OpenPose installation for local mode (default: {OPENPOSE_PATH})"
+    )
+    pipeline_parser.add_argument(
+        "--openpose-mode", "-m",
+        choices=["local", "v4l2"],
+        default=OPENPOSE_MODE,
+        help=f"OpenPose execution mode (default: {OPENPOSE_MODE})"
+    )
+    pipeline_parser.add_argument(
+        "--v4l2-device",
+        default=V4L2_DEVICE,
+        help=f"V4L2 loopback device for 'v4l2' mode (default: {V4L2_DEVICE})"
+    )
+    pipeline_parser.add_argument(
+        "--v4l2-json-dir",
+        default=V4L2_OPENPOSE_JSON_DIR,
+        help=f"OpenPose JSON output directory for 'v4l2' mode (default: {V4L2_OPENPOSE_JSON_DIR})"
     )
     pipeline_parser.add_argument(
         "--no-preview",
         action="store_true",
         help="Disable preview windows"
+    )
+    pipeline_parser.add_argument(
+        "--save-video",
+        action="store_true",
+        default=None,
+        help="Enable video recording (default: from config)"
+    )
+    pipeline_parser.add_argument(
+        "--no-save-video",
+        action="store_true",
+        help="Disable video recording"
     )
 
     return parser
@@ -177,22 +238,56 @@ Examples:
 
 def cmd_capture(args) -> int:
     """Execute capture command."""
-    from reba_3d.capture.realsense_capture import process_bag_file
+    # Resolve save_video from CLI args
+    save_video = None
+    if args.no_save_video:
+        save_video = False
+    elif args.save_video:
+        save_video = True
+    # Otherwise None = use config default
 
     try:
-        result = process_bag_file(
-            bag_file=args.bag,
-            output_dir=args.output,
-            openpose_path=args.openpose,
-            show_preview=not args.no_preview
-        )
-        print(f"\n✅ Capture terminée:")
-        print(f"  - Vidéo brute: {result['raw_video']}")
-        print(f"  - Vidéo OpenPose: {result['openpose_video']}")
-        print(f"  - Keypoints JSON: {result['keypoints_json']}")
+        if args.openpose_mode == "v4l2":
+            # Mode V4L2 streaming temps réel
+            from reba_3d.capture.realsense_capture import process_bag_file_realtime
+
+            result = process_bag_file_realtime(
+                bag_file=args.bag,
+                output_dir=args.output,
+                v4l2_device=args.v4l2_device,
+                json_dir=args.v4l2_json_dir,
+                show_preview=not args.no_preview,
+                save_video=save_video,
+            )
+            print(f"\n[OK] Capture temps réel terminée:")
+            if result.get('raw_video'):
+                print(f"  - Vidéo brute: {result['raw_video']}")
+            print(f"  - Keypoints JSON: {result['keypoints_json']}")
+
+        else:
+            # Mode local (pyopenpose)
+            from reba_3d.capture.realsense_capture import process_bag_file
+
+            result = process_bag_file(
+                bag_file=args.bag,
+                output_dir=args.output,
+                openpose_path=args.openpose,
+                openpose_mode=args.openpose_mode,
+                show_preview=not args.no_preview,
+                save_video=save_video,
+            )
+            print(f"\n[OK] Capture terminée:")
+            if result.get('raw_video'):
+                print(f"  - Vidéo brute: {result['raw_video']}")
+            if result.get('openpose_video'):
+                print(f"  - Vidéo OpenPose: {result['openpose_video']}")
+            print(f"  - Keypoints JSON: {result['keypoints_json']}")
+
         return 0
     except Exception as e:
-        print(f"❌ Erreur: {e}")
+        print(f"[ERROR] Erreur: {e}")
+        import traceback
+        traceback.print_exc()
         return 1
 
 
@@ -208,10 +303,10 @@ def cmd_analyze(args) -> int:
             coupling_malus=args.coupling_malus,
             activity_malus=args.activity_malus
         )
-        print(f"\n✅ Analyse terminée: {results['num_windows']} fenêtres analysées")
+        print(f"\n[OK] Analyse terminée: {results['num_windows']} fenêtres analysées")
         return 0
     except Exception as e:
-        print(f"❌ Erreur: {e}")
+        print(f"[ERROR] Erreur: {e}")
         return 1
 
 
@@ -226,10 +321,10 @@ def cmd_annotate(args) -> int:
             output_path=args.output,
             show_preview=args.preview
         )
-        print(f"\n✅ Annotation terminée: {output_path}")
+        print(f"\n[OK] Annotation terminée: {output_path}")
         return 0
     except Exception as e:
-        print(f"❌ Erreur: {e}")
+        print(f"[ERROR] Erreur: {e}")
         return 1
 
 
@@ -244,31 +339,59 @@ def cmd_view(args) -> int:
         )
         return 0
     except Exception as e:
-        print(f"❌ Erreur: {e}")
+        print(f"[ERROR] Erreur: {e}")
         return 1
 
 
 def cmd_pipeline(args) -> int:
     """Execute complete pipeline."""
-    from reba_3d.capture.realsense_capture import process_bag_file
     from reba_3d.reba.risk_assessment import assess_video
     from reba_3d.visualization.annotator import annotate_with_reba
+
+    # Resolve save_video from CLI args
+    save_video = None
+    if args.no_save_video:
+        save_video = False
+    elif args.save_video:
+        save_video = True
+    # Otherwise None = use config default
 
     output_dir = Path(args.output)
 
     print("=" * 60)
     print("ÉTAPE 1/3: Capture des keypoints 3D")
+    print(f"Mode: {args.openpose_mode}")
     print("=" * 60)
 
     try:
-        capture_result = process_bag_file(
-            bag_file=args.bag,
-            output_dir=output_dir,
-            openpose_path=args.openpose,
-            show_preview=not args.no_preview
-        )
+        if args.openpose_mode == "v4l2":
+            # Mode V4L2 streaming temps réel
+            from reba_3d.capture.realsense_capture import process_bag_file_realtime
+
+            capture_result = process_bag_file_realtime(
+                bag_file=args.bag,
+                output_dir=output_dir,
+                v4l2_device=args.v4l2_device,
+                json_dir=args.v4l2_json_dir,
+                show_preview=not args.no_preview,
+                save_video=save_video,
+            )
+        else:
+            # Mode local (pyopenpose)
+            from reba_3d.capture.realsense_capture import process_bag_file
+
+            capture_result = process_bag_file(
+                bag_file=args.bag,
+                output_dir=output_dir,
+                openpose_path=args.openpose,
+                openpose_mode=args.openpose_mode,
+                show_preview=not args.no_preview,
+                save_video=save_video,
+            )
     except Exception as e:
-        print(f"❌ Erreur lors de la capture: {e}")
+        print(f"[ERROR] Erreur lors de la capture: {e}")
+        import traceback
+        traceback.print_exc()
         return 1
 
     print("\n" + "=" * 60)
@@ -282,30 +405,39 @@ def cmd_pipeline(args) -> int:
             output_path=str(risk_times_path)
         )
     except Exception as e:
-        print(f"❌ Erreur lors de l'analyse: {e}")
+        print(f"[ERROR] Erreur lors de l'analyse: {e}")
         return 1
 
-    print("\n" + "=" * 60)
-    print("ÉTAPE 3/3: Annotation vidéo")
-    print("=" * 60)
+    # Step 3: Annotation (only if video was recorded)
+    openpose_video = capture_result.get("openpose_video")
+    if openpose_video:
+        print("\n" + "=" * 60)
+        print("ÉTAPE 3/3: Annotation vidéo")
+        print("=" * 60)
 
-    try:
-        annotate_with_reba(
-            input_video=capture_result["openpose_video"],
-            risk_times=str(risk_times_path),
-            show_preview=not args.no_preview
-        )
-    except Exception as e:
-        print(f"❌ Erreur lors de l'annotation: {e}")
-        return 1
+        try:
+            annotate_with_reba(
+                input_video=openpose_video,
+                risk_times=str(risk_times_path),
+                show_preview=not args.no_preview
+            )
+        except Exception as e:
+            print(f"[ERROR] Erreur lors de l'annotation: {e}")
+            return 1
+    else:
+        print("\n" + "=" * 60)
+        print("ÉTAPE 3/3: Annotation vidéo (ignorée - enregistrement désactivé)")
+        print("=" * 60)
 
     print("\n" + "=" * 60)
-    print("✅ Pipeline complet terminé!")
+    print("[OK] Pipeline complet terminé!")
     print("=" * 60)
     print(f"\nFichiers générés dans {output_dir}:")
-    print(f"  - output.avi (vidéo brute)")
-    print(f"  - output_openpose.avi (vidéo OpenPose)")
-    print(f"  - output_openpose_annotated.avi (vidéo annotée REBA)")
+    if capture_result.get('raw_video'):
+        print(f"  - output.avi (vidéo brute)")
+    if capture_result.get('openpose_video'):
+        print(f"  - output_openpose.avi (vidéo OpenPose)")
+        print(f"  - output_openpose_annotated.avi (vidéo annotée REBA)")
     print(f"  - keypoints_3d.json (données 3D)")
     print(f"  - risk_times.json (intervalles de risque)")
 

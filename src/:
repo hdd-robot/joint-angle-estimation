@@ -1,0 +1,96 @@
+
+La solution actuelle envoie des images RGB vers OpenPose via des fichiers (écriture dans un dossier partagé Docker), puis récupère les JSON de keypoints.
+
+Problème : cette solution ne fonctionne pas pour un flux vidéo temps réel.
+
+Pourquoi la solution par fichiers ne fonctionne pas
+
+    OpenPose n’est pas conçu comme un service qui “attend” des images dans un dossier.
+
+    L’option --image_dir correspond à un mode batch :
+
+        OpenPose lit le dossier une fois
+
+        traite les images présentes
+
+        puis s’arrête.
+
+    Il n’y a aucun mécanisme natif dans OpenPose pour :
+
+        surveiller un dossier en continu
+
+        traiter un flux image par image en temps réel
+
+    Relancer OpenPose pour chaque image est :
+
+        coûteux
+
+        instable
+
+        incompatible avec une vraie contrainte temps réel.
+
+Conclusion : les fichiers sont fondamentalement incompatibles avec un flux vidéo temps réel dans OpenPose.
+
+Solution correcte (architecture recommandée)
+
+    OpenPose doit lire un flux vidéo continu, pas des images isolées.
+
+    L’application principale (Python) garde le contrôle de la caméra 3D :
+
+        elle lit RGB + Depth en temps réel
+
+        elle conserve le Depth pour la reconstruction 3D
+
+    Le flux RGB uniquement est exposé comme une webcam virtuelle Linux (V4L2).
+
+    OpenPose (dans Docker) lit cette webcam virtuelle avec --camera.
+
+Architecture cible :
+
+Caméra 3D
+  ├─ RGB  ──> V4L2 loopback (/dev/video10) ──> OpenPose (Docker)
+  └─ Depth ──> conservé côté application → projection 2D → 3D
+
+Cette architecture permet :
+
+    OpenPose en temps réel
+
+    un processus Docker long vivant
+
+    une synchronisation correcte RGB / Depth
+
+    l’extraction automatique de keypoints 3D
+
+Responsabilités utilisateur (important)
+
+    L’utilisateur crée la webcam virtuelle sur l’hôte :
+
+sudo modprobe v4l2loopback devices=1 video_nr=10 card_label="RGB_OpenPose"
+
+    L’application écrit les frames RGB dans /dev/video10.
+
+    L’utilisateur lance ensuite Docker OpenPose avec accès au device vidéo :
+
+docker run -it \
+  --gpus all \
+  --ipc=host \
+  --device=/dev/video10 \
+  cwaffles/openpose \
+  ./build/examples/openpose/openpose.bin \
+  --camera 10 \
+  --model_pose COCO \
+  --net_resolution 320x176 \
+  --number_people_max 1 \
+  --display 0
+
+Objectif attendu
+
+Adapter l’application existante pour :
+
+    abandonner le mode fichier pour OpenPose
+
+    utiliser un flux vidéo continu via V4L2
+
+    conserver le pipeline RGB → OpenPose → keypoints 2D → projection 3D
+
+Toute solution reposant sur l’écriture d’images dans un dossier est à considérer comme incorrecte pour du temps réel.
