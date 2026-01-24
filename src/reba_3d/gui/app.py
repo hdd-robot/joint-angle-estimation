@@ -27,6 +27,7 @@ from reba_3d.config.calibration_store import (
 from reba_3d.core.angles import (
     calculate_angles_from_keypoints_2d, compute_calibration_offsets
 )
+from reba_3d.reba.realtime_scorer import RealtimeREBAScorer, REBAScore
 from reba_3d.utils.logger import get_logger
 
 # Logger pour ce module
@@ -100,6 +101,11 @@ class REBAApp:
         self.calibration_angles: List[Dict[str, float]] = []  # Liste des angles collectés
         self.calibration_duration = self.config.calibration.duration  # Durée en secondes
         self.calibration_manager = get_calibration_manager()
+
+        # REBA scoring
+        self.reba_scorer = RealtimeREBAScorer(buffer_size=10)
+        self.current_reba_score: Optional[REBAScore] = None
+        self.current_angles: Dict[str, float] = {}
 
         # Initialisation Pygame
         pygame.init()
@@ -603,7 +609,9 @@ class REBAApp:
         Args:
             frame: Image BGR numpy array
         """
-        output_frame = frame
+        import cv2
+
+        output_frame = frame.copy()
         keypoints = None
 
         # Détection OpenPose si disponible
@@ -619,24 +627,91 @@ class REBAApp:
                 except Exception as e:
                     logger.warning(f"Erreur détection: {e}")
 
-        # Afficher le frame (avec ou sans skeleton)
+        # Traiter les keypoints si disponibles
+        if keypoints is not None:
+            try:
+                if len(keypoints) > 0 and len(keypoints.shape) >= 2:
+                    person_keypoints = keypoints[0]
+
+                    # Calculer les angles bruts
+                    raw_angles = calculate_angles_from_keypoints_2d(person_keypoints)
+
+                    if raw_angles:
+                        # Mode calibration: collecter les angles
+                        if self.calibration_active:
+                            self.calibration_angles.append(raw_angles)
+
+                        # Mode normal: appliquer calibration et calculer REBA
+                        else:
+                            # Appliquer la calibration
+                            calibrated_angles = self.calibration_manager.apply_all(raw_angles)
+                            self.current_angles = calibrated_angles
+
+                            # Calculer le score REBA
+                            self.current_reba_score = self.reba_scorer.update(calibrated_angles)
+
+                            # Dessiner le score sur la frame si activé
+                            if self.show_scores and self.current_reba_score:
+                                output_frame = self._draw_reba_overlay(output_frame)
+
+            except Exception as e:
+                logger.debug(f"Erreur traitement keypoints: {e}")
+
+        # Afficher le frame (avec ou sans overlay)
         with self.frame_lock:
             self.current_frame = output_frame.copy()
 
-        # Si calibration active, calculer et collecter les angles
-        if self.calibration_active and keypoints is not None:
-            try:
-                # OpenPose retourne (num_people, 25, 3) - prendre la première personne
-                if len(keypoints) > 0 and len(keypoints.shape) >= 2:
-                    person_keypoints = keypoints[0]  # Première personne détectée
+    def _draw_reba_overlay(self, frame) -> np.ndarray:
+        """
+        Dessine l'overlay REBA sur le frame.
 
-                    # Calculer les angles à partir des keypoints 2D
-                    angles = calculate_angles_from_keypoints_2d(person_keypoints)
+        Args:
+            frame: Image BGR
 
-                    if angles:
-                        self.calibration_angles.append(angles)
-            except Exception as e:
-                logger.debug(f"Erreur calcul angles: {e}")
+        Returns:
+            Frame avec overlay
+        """
+        import cv2
+
+        if self.current_reba_score is None:
+            return frame
+
+        score = self.current_reba_score
+        h, w = frame.shape[:2]
+
+        # Couleur de fond basée sur le risque
+        color = score.risk_color
+
+        # Rectangle de fond semi-transparent
+        overlay = frame.copy()
+        cv2.rectangle(overlay, (10, 10), (200, 120), (0, 0, 0), -1)
+        cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
+
+        # Texte du score REBA
+        cv2.putText(
+            frame, f"REBA: {score.final_score}",
+            (20, 45), cv2.FONT_HERSHEY_SIMPLEX, 1.0, color, 2
+        )
+
+        # Niveau de risque
+        cv2.putText(
+            frame, f"{score.risk_level.upper()}",
+            (20, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2
+        )
+
+        # Détail des scores (optionnel)
+        detail = f"A:{score.score_a} B:{score.score_b}"
+        cv2.putText(
+            frame, detail,
+            (20, 110), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1
+        )
+
+        # Barre de couleur indicateur de risque
+        bar_width = int((score.final_score / 12) * 180)
+        cv2.rectangle(frame, (10, 125), (10 + bar_width, 135), color, -1)
+        cv2.rectangle(frame, (10, 125), (190, 135), (100, 100, 100), 1)
+
+        return frame
 
     def _handle_events(self) -> None:
         """Gère les événements Pygame."""
