@@ -120,6 +120,7 @@ class REBAApp:
 
         # Depth/3D data
         self.depth_intrinsics = None  # Camera intrinsics for 3D projection
+        self.depth_scale = 0.001  # Depth scale (mètres par unité), sera mis à jour par la caméra
         self.use_3d = True  # Use 3D angles when available
         self.current_depth_frame = None  # Depth frame pour traitement temps réel
         self._last_depth_data = None  # Dernières données depth copiées (numpy array)
@@ -624,9 +625,8 @@ class REBAApp:
             # Récupérer la valeur depth brute (uint16)
             depth_raw = self.frozen_depth_data[y, x]
 
-            # Convertir en mètres (depth scale RealSense = 0.001 par défaut)
-            depth_scale = 0.001  # 1mm par unité
-            depth = float(depth_raw) * depth_scale
+            # Convertir en mètres avec le depth scale de la caméra
+            depth = float(depth_raw) * self.depth_scale
 
             if depth <= 0 or depth > 10.0:
                 logger.debug(f"Depth invalide: {depth}m (raw={depth_raw}) à ({x}, {y})")
@@ -739,6 +739,12 @@ class REBAApp:
             self.depth_intrinsics = color_profile.get_intrinsics()
             logger.info(f"Intrinsics 3D (aligned): {self.depth_intrinsics.width}x{self.depth_intrinsics.height}")
 
+            # Récupérer le depth scale réel de la caméra
+            depth_sensor = profile.get_device().first_depth_sensor()
+            self.depth_scale = depth_sensor.get_depth_scale()
+            logger.info(f"Depth scale: {self.depth_scale}")
+            self.log_panel.add_info(f"Depth scale: {self.depth_scale}")
+
             while not self.stop_capture.is_set():
                 frames = pipeline.wait_for_frames()
                 aligned = align.process(frames)
@@ -798,6 +804,13 @@ class REBAApp:
                 color_profile = profile.get_stream(rs.stream.color).as_video_stream_profile()
                 self.depth_intrinsics = color_profile.get_intrinsics()
                 logger.info(f"Intrinsics 3D (aligned): {self.depth_intrinsics.width}x{self.depth_intrinsics.height}")
+
+                # Récupérer le depth scale réel
+                depth_sensor = device.first_depth_sensor()
+                self.depth_scale = depth_sensor.get_depth_scale()
+                logger.info(f"Depth scale: {self.depth_scale}")
+                self.log_panel.add_info(f"Depth scale: {self.depth_scale}")
+
                 self.log_panel.add_success("Mode 3D activé")
             except Exception as e:
                 logger.warning(f"Impossible d'obtenir les intrinsics: {e}")
