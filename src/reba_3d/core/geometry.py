@@ -108,7 +108,7 @@ def extraire_angles_nautiques(
     # alpha
     alpha = np.arctan2(R[2, 1] / cos_b, R[2, 2] / cos_b)
     # gamma
-    gamma = np.arctan2(R[0, 1] / cos_b, R[0, 0] / cos_b)
+    gamma = np.arctan2(R[1, 0] / cos_b, R[0, 0] / cos_b)
 
     return float(np.degrees(alpha)), float(np.degrees(beta)), float(np.degrees(gamma))
 
