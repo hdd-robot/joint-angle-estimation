@@ -1,15 +1,6 @@
 src/bags
 src/bag
 
-# Claude Code
-src/.claude
-.claude/
-CLAUDE.md
-
-# GitHub Copilot CLI
-.copilot/
-.github-copilot/
-
 # Sphinx documentation build
 src/doc_sphinx/_build/
 
@@ -182,6 +173,11 @@ dmypy.json
 
 # Cython debug symbols
 cython_debug/
+src/.claude
+.claude/
+CLAUDE.md
+.copilot/
+.github-copilot/
 
 # PyCharm
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
