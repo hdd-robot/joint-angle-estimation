@@ -1,15 +1,15 @@
-created_at: '2026-01-25T11:08:55.522849'
+created_at: '2026-01-25T13:44:02.943745'
 metadata:
   description: REBA calibration offsets from neutral standing position
   duration_seconds: 5
-  frames_collected: 90
-  mode: inline
+  frames_collected: 76
+  mode: offline
 offsets:
-  cou: 164.95277631124978
-  coude_droit: 166.27955073867116
-  coude_gauche: 164.90039919701275
-  epaule_droite: 33.305354029839215
-  epaule_gauche: 38.37866604644016
-  genou_droit: 160.53293910016714
-  genou_gauche: 149.2802753084784
-  hanche: 86.3196600074118
+  cou: 167.10302871548916
+  coude_droit: 162.5371095920442
+  coude_gauche: 161.58741589741575
+  epaule_droite: 33.34445180602964
+  epaule_gauche: 41.01863451025744
+  genou_droit: 163.77024247193305
+  genou_gauche: 168.32362382563167
+  hanche: 92.22099645505635

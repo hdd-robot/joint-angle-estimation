@@ -98,6 +98,15 @@ reba:
   # FPS vidéo pour le calcul des intervalles temporels
   video_fps: 15
 
+  # Score charge/force (0: <5kg, 1: 5-10kg, 2: >10kg, +1 si choc)
+  load_score: 0
+
+  # Score qualité de prise (0: bonne, 1: acceptable, 2: mauvaise, 3: inacceptable)
+  coupling_score: 0
+
+  # Score activité (+1 pour chaque: posture statique >1min, mouvements répétés, changements rapides)
+  activity_score: 0
+
 # -----------------------------------------------------------------------------
 # Calibration
 # -----------------------------------------------------------------------------

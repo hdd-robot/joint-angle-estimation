@@ -459,6 +459,128 @@ class VideoDisplay:
         return WHITE
 
 
+class ScoreButtonGroup:
+    """
+    Groupe de petits boutons horizontaux pour sélectionner un score (0, 1, 2, 3).
+
+    Utilisé pour les paramètres REBA: charge, prise, activité.
+    """
+
+    def __init__(
+        self,
+        x: int,
+        y: int,
+        label: str,
+        values: List[int] = None,
+        callback: Optional[Callable] = None,
+        initial_value: int = 0,
+        button_size: int = 22,
+        spacing: int = 3,
+        selected_color: Tuple[int, int, int] = GREEN,
+        unselected_color: Tuple[int, int, int] = (50, 50, 60),
+    ):
+        """
+        Initialise un groupe de boutons de score.
+
+        Args:
+            x, y: Position (coin supérieur gauche)
+            label: Label affiché à gauche des boutons
+            values: Liste des valeurs possibles (défaut: [0, 1, 2, 3])
+            callback: Fonction appelée avec la nouvelle valeur
+            initial_value: Valeur initiale sélectionnée
+            button_size: Taille des boutons carrés
+            spacing: Espacement entre les boutons
+            selected_color: Couleur du bouton sélectionné
+            unselected_color: Couleur des boutons non sélectionnés
+        """
+        self.x = x
+        self.y = y
+        self.label = label
+        self.values = values if values is not None else [0, 1, 2, 3]
+        self.callback = callback
+        self.selected_value = initial_value
+        self.button_size = button_size
+        self.spacing = spacing
+        self.selected_color = selected_color
+        self.unselected_color = unselected_color
+
+        # Police
+        self.font = pygame.font.Font(None, 18)
+        self.btn_font = pygame.font.Font(None, 20)
+
+        # Calculer la largeur du label
+        self.label_width = 55
+
+        # Créer les rectangles des boutons
+        self.buttons: List[Tuple[pygame.Rect, int]] = []
+        btn_x = x + self.label_width
+        for val in self.values:
+            rect = pygame.Rect(btn_x, y, button_size, button_size)
+            self.buttons.append((rect, val))
+            btn_x += button_size + spacing
+
+        self.hovered_index = -1
+
+    def get_value(self) -> int:
+        """Retourne la valeur sélectionnée."""
+        return self.selected_value
+
+    def set_value(self, value: int) -> None:
+        """Définit la valeur sélectionnée."""
+        if value in self.values:
+            self.selected_value = value
+
+    def draw(self, surface: pygame.Surface) -> None:
+        """Dessine le groupe de boutons."""
+        # Label
+        label_surface = self.font.render(self.label, True, LIGHT_GRAY)
+        surface.blit(label_surface, (self.x, self.y + 6))
+
+        # Boutons
+        for i, (rect, val) in enumerate(self.buttons):
+            # Couleur selon l'état
+            if val == self.selected_value:
+                color = self.selected_color
+            elif i == self.hovered_index:
+                color = (80, 80, 100)
+            else:
+                color = self.unselected_color
+
+            # Rectangle du bouton
+            pygame.draw.rect(surface, color, rect, border_radius=4)
+            pygame.draw.rect(surface, LIGHT_GRAY, rect, 1, border_radius=4)
+
+            # Texte du bouton
+            text = self.btn_font.render(str(val), True, WHITE)
+            text_rect = text.get_rect(center=rect.center)
+            surface.blit(text, text_rect)
+
+    def handle_event(self, event: pygame.event.Event) -> bool:
+        """
+        Gère les événements.
+
+        Returns:
+            True si une valeur a été sélectionnée
+        """
+        if event.type == pygame.MOUSEMOTION:
+            self.hovered_index = -1
+            for i, (rect, _) in enumerate(self.buttons):
+                if rect.collidepoint(event.pos):
+                    self.hovered_index = i
+                    break
+
+        elif event.type == pygame.MOUSEBUTTONDOWN:
+            if event.button == 1:
+                for rect, val in self.buttons:
+                    if rect.collidepoint(event.pos):
+                        self.selected_value = val
+                        if self.callback:
+                            self.callback(val)
+                        return True
+
+        return False
+
+
 class ScoreGraph:
     """
     Graphique temps réel des scores REBA 2D et 3D.

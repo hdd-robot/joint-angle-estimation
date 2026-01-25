@@ -14,6 +14,7 @@ from reba_3d.config.settings import (
     OUTPUT_DIR,
     RECORDING_ENABLED,
 )
+from reba_3d.config import get_config
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -115,22 +116,22 @@ Examples:
         help="Path for output risk_times.json (default: risk_times.json)"
     )
     analyze_parser.add_argument(
-        "--load-malus",
+        "--load-score",
         type=int,
-        default=1,
-        help="Load/force malus score (default: 1)"
+        default=None,
+        help="Load/force score: 0=<5kg, 1=5-10kg, 2=>10kg (default: from config)"
     )
     analyze_parser.add_argument(
-        "--coupling-malus",
+        "--coupling-score",
         type=int,
-        default=1,
-        help="Coupling quality malus score (default: 1)"
+        default=None,
+        help="Coupling score: 0=good, 1=fair, 2=poor, 3=unacceptable (default: from config)"
     )
     analyze_parser.add_argument(
-        "--activity-malus",
+        "--activity-score",
         type=int,
-        default=1,
-        help="Activity malus score (default: 1)"
+        default=None,
+        help="Activity score: 0-3 (default: from config)"
     )
 
     # Annotate command
@@ -276,13 +277,19 @@ def cmd_analyze(args) -> int:
     """Execute analyze command."""
     from reba_3d.reba.risk_assessment import assess_video
 
+    # Get config values as defaults
+    config = get_config()
+    load_score = args.load_score if args.load_score is not None else config.reba.load_score
+    coupling_score = args.coupling_score if args.coupling_score is not None else config.reba.coupling_score
+    activity_score = args.activity_score if args.activity_score is not None else config.reba.activity_score
+
     try:
         results = assess_video(
             keypoints_path=args.input,
             output_path=args.output,
-            load_malus=args.load_malus,
-            coupling_malus=args.coupling_malus,
-            activity_malus=args.activity_malus
+            load_malus=load_score,
+            coupling_malus=coupling_score,
+            activity_malus=activity_score
         )
         print(f"\n[OK] Analyse terminée: {results['num_windows']} fenêtres analysées")
         return 0

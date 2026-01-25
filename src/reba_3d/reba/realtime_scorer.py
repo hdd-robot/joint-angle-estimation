@@ -8,6 +8,9 @@ Uses calibrated angles to determine risk levels.
 from typing import Dict, Tuple, Optional
 from dataclasses import dataclass
 
+# Import standard REBA tables from tables.py
+from reba_3d.reba.tables import TABLE_A, TABLE_B, TABLE_C
+
 
 @dataclass
 class REBAScore:
@@ -20,7 +23,7 @@ class REBAScore:
     lower_arm_score: int = 1
 
     # Table scores
-    score_a: int = 1  # Neck + Trunk + Legs
+    score_a: int = 1  # Trunk + Neck + Legs
     score_b: int = 1  # Upper arm + Lower arm + Wrist
     score_c: int = 1  # Combined
 
@@ -31,61 +34,6 @@ class REBAScore:
 
     def __str__(self) -> str:
         return f"REBA {self.final_score} ({self.risk_level})"
-
-
-# REBA Table A: Neck x Trunk x Legs
-# Simplified version - returns approximate score
-TABLE_A = {
-    # (neck, trunk, legs) -> score
-    (1, 1, 1): 1, (1, 1, 2): 2, (1, 1, 3): 3, (1, 1, 4): 4,
-    (1, 2, 1): 2, (1, 2, 2): 3, (1, 2, 3): 4, (1, 2, 4): 5,
-    (1, 3, 1): 3, (1, 3, 2): 4, (1, 3, 3): 5, (1, 3, 4): 6,
-    (1, 4, 1): 4, (1, 4, 2): 5, (1, 4, 3): 6, (1, 4, 4): 7,
-    (1, 5, 1): 5, (1, 5, 2): 6, (1, 5, 3): 7, (1, 5, 4): 8,
-    (2, 1, 1): 2, (2, 1, 2): 3, (2, 1, 3): 4, (2, 1, 4): 5,
-    (2, 2, 1): 3, (2, 2, 2): 4, (2, 2, 3): 5, (2, 2, 4): 6,
-    (2, 3, 1): 4, (2, 3, 2): 5, (2, 3, 3): 6, (2, 3, 4): 7,
-    (2, 4, 1): 5, (2, 4, 2): 6, (2, 4, 3): 7, (2, 4, 4): 8,
-    (2, 5, 1): 6, (2, 5, 2): 7, (2, 5, 3): 8, (2, 5, 4): 9,
-    (3, 1, 1): 3, (3, 1, 2): 4, (3, 1, 3): 5, (3, 1, 4): 6,
-    (3, 2, 1): 4, (3, 2, 2): 5, (3, 2, 3): 6, (3, 2, 4): 7,
-    (3, 3, 1): 5, (3, 3, 2): 6, (3, 3, 3): 7, (3, 3, 4): 8,
-    (3, 4, 1): 6, (3, 4, 2): 7, (3, 4, 3): 8, (3, 4, 4): 9,
-    (3, 5, 1): 7, (3, 5, 2): 8, (3, 5, 3): 9, (3, 5, 4): 9,
-}
-
-# REBA Table B: Upper Arm x Lower Arm x Wrist
-TABLE_B = {
-    # (upper_arm, lower_arm, wrist) -> score
-    (1, 1, 1): 1, (1, 1, 2): 2, (1, 1, 3): 2,
-    (1, 2, 1): 1, (1, 2, 2): 2, (1, 2, 3): 3,
-    (2, 1, 1): 1, (2, 1, 2): 2, (2, 1, 3): 3,
-    (2, 2, 1): 2, (2, 2, 2): 3, (2, 2, 3): 4,
-    (3, 1, 1): 3, (3, 1, 2): 4, (3, 1, 3): 5,
-    (3, 2, 1): 4, (3, 2, 2): 5, (3, 2, 3): 5,
-    (4, 1, 1): 4, (4, 1, 2): 5, (4, 1, 3): 5,
-    (4, 2, 1): 5, (4, 2, 2): 6, (4, 2, 3): 7,
-    (5, 1, 1): 6, (5, 1, 2): 7, (5, 1, 3): 8,
-    (5, 2, 1): 7, (5, 2, 2): 8, (5, 2, 3): 8,
-    (6, 1, 1): 7, (6, 1, 2): 8, (6, 1, 3): 8,
-    (6, 2, 1): 8, (6, 2, 2): 9, (6, 2, 3): 9,
-}
-
-# REBA Table C: Score A x Score B
-TABLE_C = {
-    (1, 1): 1, (1, 2): 1, (1, 3): 1, (1, 4): 2, (1, 5): 3, (1, 6): 3, (1, 7): 4, (1, 8): 5, (1, 9): 6, (1, 10): 7, (1, 11): 7, (1, 12): 7,
-    (2, 1): 1, (2, 2): 2, (2, 3): 2, (2, 4): 3, (2, 5): 4, (2, 6): 4, (2, 7): 5, (2, 8): 6, (2, 9): 6, (2, 10): 7, (2, 11): 7, (2, 12): 8,
-    (3, 1): 2, (3, 2): 3, (3, 3): 3, (3, 4): 3, (3, 5): 4, (3, 6): 5, (3, 7): 6, (3, 8): 7, (3, 9): 7, (3, 10): 8, (3, 11): 8, (3, 12): 8,
-    (4, 1): 3, (4, 2): 4, (4, 3): 4, (4, 4): 4, (4, 5): 5, (4, 6): 6, (4, 7): 7, (4, 8): 8, (4, 9): 8, (4, 10): 9, (4, 11): 9, (4, 12): 9,
-    (5, 1): 4, (5, 2): 4, (5, 3): 4, (5, 4): 5, (5, 5): 6, (5, 6): 7, (5, 7): 8, (5, 8): 8, (5, 9): 9, (5, 10): 9, (5, 11): 9, (5, 12): 9,
-    (6, 1): 6, (6, 2): 6, (6, 3): 6, (6, 4): 7, (6, 5): 8, (6, 6): 8, (6, 7): 9, (6, 8): 9, (6, 9): 10, (6, 10): 10, (6, 11): 10, (6, 12): 10,
-    (7, 1): 7, (7, 2): 7, (7, 3): 7, (7, 4): 8, (7, 5): 9, (7, 6): 9, (7, 7): 9, (7, 8): 10, (7, 9): 10, (7, 10): 11, (7, 11): 11, (7, 12): 11,
-    (8, 1): 8, (8, 2): 8, (8, 3): 8, (8, 4): 9, (8, 5): 10, (8, 6): 10, (8, 7): 10, (8, 8): 10, (8, 9): 10, (8, 10): 11, (8, 11): 11, (8, 12): 11,
-    (9, 1): 9, (9, 2): 9, (9, 3): 9, (9, 4): 10, (9, 5): 10, (9, 6): 10, (9, 7): 11, (9, 8): 11, (9, 9): 11, (9, 10): 12, (9, 11): 12, (9, 12): 12,
-    (10, 1): 10, (10, 2): 10, (10, 3): 10, (10, 4): 11, (10, 5): 11, (10, 6): 11, (10, 7): 11, (10, 8): 12, (10, 9): 12, (10, 10): 12, (10, 11): 12, (10, 12): 12,
-    (11, 1): 11, (11, 2): 11, (11, 3): 11, (11, 4): 11, (11, 5): 12, (11, 6): 12, (11, 7): 12, (11, 8): 12, (11, 9): 12, (11, 10): 12, (11, 11): 12, (11, 12): 12,
-    (12, 1): 12, (12, 2): 12, (12, 3): 12, (12, 4): 12, (12, 5): 12, (12, 6): 12, (12, 7): 12, (12, 8): 12, (12, 9): 12, (12, 10): 12, (12, 11): 12, (12, 12): 12,
-}
 
 # Risk levels and colors (BGR for OpenCV)
 RISK_LEVELS = {
@@ -108,19 +56,23 @@ def score_neck_angle(angle: float) -> int:
     """
     Score neck flexion/extension.
 
+    REBA standard:
+    - 0-20° flexion: Score 1
+    - >20° flexion or any extension: Score 2
+
+    Note: Score 3 comes from +1 adjustment for twist/side bend (not handled here)
+
     Args:
         angle: Calibrated neck angle (0° = neutral)
 
     Returns:
-        REBA neck score (1-3)
+        REBA neck score (1-2)
     """
     angle = abs(angle)
-    if angle <= 10:
-        return 1  # 0-10° flexion
-    elif angle <= 20:
-        return 2  # 10-20° flexion
+    if angle <= 20:
+        return 1  # 0-20° flexion
     else:
-        return 3  # >20° flexion or extension
+        return 2  # >20° flexion or extension
 
 
 def score_trunk_angle(angle: float) -> int:
@@ -148,21 +100,26 @@ def score_legs_angle(angle: float) -> int:
     """
     Score legs/knee flexion.
 
+    REBA standard (simplified - assumes bilateral weight bearing):
+    - <30° flexion: Score 1 (base 1 + 0 adjustment)
+    - 30-60° flexion: Score 2 (base 1 + 1 adjustment)
+    - >60° flexion: Score 3 (base 1 + 2 adjustment)
+
+    Note: For unilateral weight bearing, add +1 to these scores.
+
     Args:
         angle: Calibrated knee angle (0° = straight)
 
     Returns:
-        REBA legs score (1-4)
+        REBA legs score (1-3, or 4 with unilateral adjustment)
     """
     angle = abs(angle)
-    if angle <= 15:
-        return 1  # Bilateral weight bearing, walking
-    elif angle <= 30:
-        return 2  # 30-60° flexion
+    if angle <= 30:
+        return 1  # Bilateral, no flexion adjustment
     elif angle <= 60:
-        return 3  # >60° flexion
+        return 2  # Bilateral + 30-60° flexion
     else:
-        return 4  # Significant flexion
+        return 3  # Bilateral + >60° flexion
 
 
 def score_upper_arm_angle(angle: float) -> int:
@@ -204,13 +161,13 @@ def score_lower_arm_angle(angle: float) -> int:
         return 2  # <60° or >100°
 
 
-def get_table_a_score(neck: int, trunk: int, legs: int) -> int:
-    """Look up score in Table A."""
+def get_table_a_score(trunk: int, neck: int, legs: int) -> int:
+    """Look up score in Table A (trunk, neck, legs order)."""
     # Clamp values
-    neck = max(1, min(3, neck))
     trunk = max(1, min(5, trunk))
+    neck = max(1, min(3, neck))
     legs = max(1, min(4, legs))
-    return TABLE_A.get((neck, trunk, legs), 5)
+    return TABLE_A.get((trunk, neck, legs), 5)
 
 
 def get_table_b_score(upper_arm: int, lower_arm: int, wrist: int = 1) -> int:
@@ -271,8 +228,8 @@ def calculate_reba_score(calibrated_angles: Dict[str, float]) -> REBAScore:
     score.upper_arm_score = score_upper_arm_angle(shoulder_angle)
     score.lower_arm_score = score_lower_arm_angle(elbow_angle)
 
-    # Calculate table scores
-    score.score_a = get_table_a_score(score.neck_score, score.trunk_score, score.legs_score)
+    # Calculate table scores (trunk, neck, legs order for Table A)
+    score.score_a = get_table_a_score(score.trunk_score, score.neck_score, score.legs_score)
     score.score_b = get_table_b_score(score.upper_arm_score, score.lower_arm_score, 1)
     score.score_c = get_table_c_score(score.score_a, score.score_b)
 
@@ -305,6 +262,23 @@ class RealtimeREBAScorer:
         self.score_buffer: list = []
         self.current_score: Optional[REBAScore] = None
 
+        # Additional REBA scores (malus)
+        self.load_score: int = 0      # 0=<5kg, 1=5-10kg, 2=>10kg, 3=>10kg+shock
+        self.coupling_score: int = 0  # 0=good, 1=fair, 2=poor, 3=unacceptable
+        self.activity_score: int = 0  # 0-3 based on activity conditions
+
+    def set_load_score(self, value: int) -> None:
+        """Set load/force score (0-3)."""
+        self.load_score = max(0, min(3, value))
+
+    def set_coupling_score(self, value: int) -> None:
+        """Set coupling/grip score (0-3)."""
+        self.coupling_score = max(0, min(3, value))
+
+    def set_activity_score(self, value: int) -> None:
+        """Set activity score (0-3)."""
+        self.activity_score = max(0, min(3, value))
+
     def update(self, calibrated_angles: Dict[str, float]) -> REBAScore:
         """
         Update scorer with new angles.
@@ -318,18 +292,32 @@ class RealtimeREBAScorer:
         # Calculate raw score
         raw_score = calculate_reba_score(calibrated_angles)
 
-        # Add to buffer
-        self.score_buffer.append(raw_score.final_score)
+        # Apply load/coupling/activity malus
+        # Load is added to Score A, Coupling to Score B
+        new_score_a = min(raw_score.score_a + self.load_score, 12)
+        new_score_b = min(raw_score.score_b + self.coupling_score, 12)
+
+        # Recalculate Score C with adjusted A and B
+        new_score_c = get_table_c_score(new_score_a, new_score_b)
+
+        # Add activity score to final
+        final_with_malus = min(new_score_c + self.activity_score, 15)
+
+        # Add to buffer (use the score with malus applied)
+        self.score_buffer.append(final_with_malus)
         if len(self.score_buffer) > self.buffer_size:
             self.score_buffer.pop(0)
 
         # Smooth the final score
         avg_score = round(sum(self.score_buffer) / len(self.score_buffer))
-        avg_score = max(1, min(12, avg_score))
+        avg_score = max(1, min(15, avg_score))
 
         # Update the score with smoothed value
+        raw_score.score_a = new_score_a
+        raw_score.score_b = new_score_b
+        raw_score.score_c = new_score_c
         raw_score.final_score = avg_score
-        risk_info = RISK_LEVELS.get(avg_score, ("high", (0, 0, 255)))
+        risk_info = RISK_LEVELS.get(min(avg_score, 12), ("very high", (136, 47, 99)))
         raw_score.risk_level = risk_info[0]
         raw_score.risk_color = risk_info[1]
 

@@ -47,6 +47,9 @@ DEFAULT_CONFIG = {
         "poly_order": 2,
         "feet_contact_threshold": 0.10,
         "video_fps": 15,
+        "load_score": 0,
+        "coupling_score": 0,
+        "activity_score": 0,
     },
     "calibration": {
         "duration": 5,
@@ -127,6 +130,13 @@ class REBAConfig:
     poly_order: int = 2
     feet_contact_threshold: float = 0.10
     video_fps: int = 15
+    # Scores additionnels REBA
+    # load_score: 0=<5kg, 1=5-10kg, 2=>10kg, +1 si choc/force rapide
+    load_score: int = 0
+    # coupling_score: 0=bonne prise, 1=acceptable, 2=mauvaise, 3=inacceptable
+    coupling_score: int = 0
+    # activity_score: +1 pour chaque condition (posture statique >1min, mouvements répétés, changements rapides)
+    activity_score: int = 0
 
 
 @dataclass
@@ -346,6 +356,9 @@ class Config:
                 "poly_order": self.reba.poly_order,
                 "feet_contact_threshold": self.reba.feet_contact_threshold,
                 "video_fps": self.reba.video_fps,
+                "load_score": self.reba.load_score,
+                "coupling_score": self.reba.coupling_score,
+                "activity_score": self.reba.activity_score,
             },
             "calibration": {
                 "duration": self.calibration.duration,

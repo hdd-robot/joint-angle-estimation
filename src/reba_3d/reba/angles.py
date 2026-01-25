@@ -220,7 +220,7 @@ def compute_shoulder_elevation_left(
         return None
 
     v_epaule = positions["LShoulder"] - positions["Neck"]
-    v_vertical = positions["Neck"] - positions["MidHip"]
+    v_vertical = positions["MidHip"] - positions["Neck"]
 
     return calculate_angle_between_vectors(v_epaule, v_vertical)
 

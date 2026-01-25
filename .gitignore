@@ -1,6 +1,17 @@
 src/bags
 src/bag
+
+# Claude Code
 src/.claude
+.claude/
+CLAUDE.md
+
+# GitHub Copilot CLI
+.copilot/
+.github-copilot/
+
+# Sphinx documentation build
+src/doc_sphinx/_build/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

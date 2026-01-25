@@ -41,8 +41,8 @@ def score_neck(alpha: Optional[float], beta: Optional[float] = None, gamma: Opti
     if alpha is None or is_nan(alpha):
         return 1, 0
 
-    # Score de base
-    if alpha > 15:
+    # Score de base (REBA standard: >20° flexion ou toute extension = score 2)
+    if alpha > 20 or alpha < 0:
         score = 2
     else:
         score = 1
@@ -74,15 +74,16 @@ def score_torso(alpha: Optional[float], beta: Optional[float] = None, gamma: Opt
     if alpha is None or is_nan(alpha):
         return 1, 0
 
-    # Score de base selon l'inclinaison
-    if alpha > 40:
+    # Score de base selon l'inclinaison (REBA standard)
+    # Extension (alpha < 0) = score 2
+    if alpha > 60:
         score = 4
-    elif alpha < 20:
-        score = 1
     elif alpha > 20:
         score = 3
-    else:
+    elif alpha > 0 or alpha < 0:
         score = 2
+    else:
+        score = 1  # Neutre (alpha == 0)
 
     # Calcul du malus
     malus = 0
@@ -122,17 +123,16 @@ def score_shoulder(
     if angle is None or is_nan(angle):
         return 1, 0, 0
 
-    # Score de base
-    if angle > 80:
-        score = 4
-    elif angle < -15:
-        score = 3
-    elif angle < 20:
-        score = 1
-    elif angle < 30:
-        score = 2
+    # Score de base (REBA standard)
+    # Note: angle négatif = extension, positif = flexion
+    if angle > 90:
+        score = 4  # >90° flexion
+    elif angle > 45:
+        score = 3  # 45-90° flexion
+    elif angle > 20 or angle < -20:
+        score = 2  # 20-45° flexion OU >20° extension
     else:
-        score = 3
+        score = 1  # -20° à 20° (neutre)
 
     # Malus pour élévation de l'épaule
     malus_d = 0
@@ -154,6 +154,7 @@ def score_elbow(angle: Optional[float], angle_g: Optional[float] = None) -> int:
     Calculate elbow (lower arm) score.
 
     Uses right arm if available, otherwise left arm.
+    REBA standard: 60-100° flexion = score 1, otherwise score 2
 
     Args:
         angle: Right elbow angle (degrees)
@@ -168,14 +169,20 @@ def score_elbow(angle: Optional[float], angle_g: Optional[float] = None) -> int:
     if value is None or is_nan(value):
         return 1
 
-    if value > 40:
-        return 2
-    return 1
+    # REBA standard: 60-100° flexion is neutral (score 1)
+    if 60 <= value <= 100:
+        return 1
+    return 2
 
 
 def score_knee(angle: Optional[float], angle_g: Optional[float] = None) -> int:
     """
-    Calculate knee (legs) base score.
+    Calculate knee flexion adjustment for legs score.
+
+    REBA standard:
+    - <30° flexion: +0 (no adjustment)
+    - 30-60° flexion: +1
+    - >60° flexion: +2
 
     Uses right leg if available, otherwise left leg.
 
@@ -184,31 +191,37 @@ def score_knee(angle: Optional[float], angle_g: Optional[float] = None) -> int:
         angle_g: Left knee flexion angle (degrees)
 
     Returns:
-        Knee score (1 or 2)
+        Knee flexion adjustment (0, 1, or 2)
     """
     value = angle if (angle is not None and not is_nan(angle)) else angle_g
 
     if value is None or is_nan(value):
-        return 1
+        return 0
 
-    if value > 50:
-        return 2
-    return 1
+    if value > 60:
+        return 2  # >60° flexion
+    elif value > 30:
+        return 1  # 30-60° flexion
+    return 0  # <30° flexion (no adjustment)
 
 
 def score_feet_contact(contact_state: str) -> int:
     """
-    Calculate feet contact malus for legs score.
+    Calculate legs base score from feet contact.
+
+    REBA standard:
+    - Bilateral weight bearing (both feet): Score 1
+    - Unilateral weight bearing (single foot): Score 2
 
     Args:
         contact_state: Contact state ("OK", "DROIT", "GAUCHE", "404")
 
     Returns:
-        Malus value (1 if both feet, 2 if single foot)
+        Base legs score (1 or 2)
     """
     if contact_state in ["GAUCHE", "DROIT"]:
-        return 2
-    return 1
+        return 2  # Unilateral weight bearing
+    return 1  # Bilateral weight bearing (OK or 404)
 
 
 def score_wrist(angle: Optional[float] = None) -> int:
@@ -299,7 +312,7 @@ def apply_activity_malus(
     """
     new_score_a = min(score_a + load_malus, 12)
     new_score_b = min(score_b + coupling_malus, 12)
-    new_key = (new_score_a, score_b)
+    new_key = (new_score_a, new_score_b)
     new_score_c = TABLE_C.get(new_key, score_c)
     final_score = min(new_score_c + activity_malus, 12)
 

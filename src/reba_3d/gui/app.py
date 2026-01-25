@@ -17,6 +17,7 @@ import numpy as np
 
 from reba_3d.gui.components import (
     Button, ToggleButton, RadioButtonGroup, LogPanel, VideoDisplay, ScoreGraph,
+    ScoreButtonGroup,
     WHITE, BLACK, GRAY, DARK_GRAY, GREEN, RED, BLUE, ORANGE
 )
 
@@ -110,6 +111,10 @@ class REBAApp:
 
         # REBA scoring
         self.reba_scorer = RealtimeREBAScorer(buffer_size=10)
+        # Initialiser avec les valeurs de config
+        self.reba_scorer.set_load_score(self.config.reba.load_score)
+        self.reba_scorer.set_coupling_score(self.config.reba.coupling_score)
+        self.reba_scorer.set_activity_score(self.config.reba.activity_score)
         self.current_reba_score: Optional[REBAScore] = None
         self.current_angles: Dict[str, float] = {}
 
@@ -120,6 +125,10 @@ class REBAApp:
         # Comparison mode (shows both 2D and 3D scores)
         self.show_comparison = False
         self.reba_scorer_2d = RealtimeREBAScorer(buffer_size=10)  # Scorer séparé pour 2D
+        # Initialiser avec les mêmes valeurs de config
+        self.reba_scorer_2d.set_load_score(self.config.reba.load_score)
+        self.reba_scorer_2d.set_coupling_score(self.config.reba.coupling_score)
+        self.reba_scorer_2d.set_activity_score(self.config.reba.activity_score)
         self.current_reba_score_2d: Optional[REBAScore] = None
 
         # Initialisation Pygame
@@ -212,7 +221,45 @@ class REBAApp:
             color_on=ORANGE,
             color_off=BLUE
         )
-        y += button_height + padding
+        y += button_height + padding + 10
+
+        # --- Section paramètres REBA ---
+        section_font = pygame.font.Font(None, 18)
+        self.params_label_y = y
+        y += 20
+
+        # Charger les valeurs depuis la config
+        reba_cfg = self.config.reba
+
+        # --- Score Charge (Load) ---
+        self.score_load = ScoreButtonGroup(
+            x, y,
+            label="Poids:",
+            values=[0, 1, 2, 3],
+            callback=self._on_load_change,
+            initial_value=reba_cfg.load_score
+        )
+        y += 35
+
+        # --- Score Prise (Coupling) ---
+        self.score_coupling = ScoreButtonGroup(
+            x, y,
+            label="Prise:",
+            values=[0, 1, 2, 3],
+            callback=self._on_coupling_change,
+            initial_value=reba_cfg.coupling_score
+        )
+        y += 35
+
+        # --- Score Activité ---
+        self.score_activity = ScoreButtonGroup(
+            x, y,
+            label="Activité:",
+            values=[0, 1, 2, 3],
+            callback=self._on_activity_change,
+            initial_value=reba_cfg.activity_score
+        )
+        y += 35
 
         # --- Spacer ---
         # Position du bouton Exit au-dessus du graphique
@@ -382,6 +429,24 @@ class REBAApp:
             self.log_panel.add_info("Mode comparaison 2D/3D activé")
         else:
             self.log_panel.add_info("Mode comparaison désactivé")
+
+    def _on_load_change(self, value: int) -> None:
+        """Callback pour changement du score de charge."""
+        self.reba_scorer.set_load_score(value)
+        self.reba_scorer_2d.set_load_score(value)
+        self.log_panel.add_info(f"Poids: {value}")
+
+    def _on_coupling_change(self, value: int) -> None:
+        """Callback pour changement du score de prise."""
+        self.reba_scorer.set_coupling_score(value)
+        self.reba_scorer_2d.set_coupling_score(value)
+        self.log_panel.add_info(f"Prise: {value}")
+
+    def _on_activity_change(self, value: int) -> None:
+        """Callback pour changement du score d'activité."""
+        self.reba_scorer.set_activity_score(value)
+        self.reba_scorer_2d.set_activity_score(value)
+        self.log_panel.add_info(f"Activité: {value}")
 
     def _on_pause_toggle(self, state: bool) -> None:
         """Callback pour pause/reprendre la vidéo."""
@@ -882,6 +947,9 @@ class REBAApp:
             self.btn_calibration.handle_event(event)
             self.btn_scores.handle_event(event)
             self.btn_comparison.handle_event(event)
+            self.score_load.handle_event(event)
+            self.score_coupling.handle_event(event)
+            self.score_activity.handle_event(event)
             self.btn_exit.handle_event(event)
 
     def _update(self) -> None:
@@ -924,6 +992,17 @@ class REBAApp:
         self.btn_calibration.draw(self.screen)
         self.btn_scores.draw(self.screen)
         self.btn_comparison.draw(self.screen)
+
+        # Label section paramètres
+        params_font = pygame.font.Font(None, 18)
+        params_label = params_font.render("Paramètres REBA:", True, GRAY)
+        self.screen.blit(params_label, (10, self.params_label_y))
+
+        # Boutons de score
+        self.score_load.draw(self.screen)
+        self.score_coupling.draw(self.screen)
+        self.score_activity.draw(self.screen)
+
         self.btn_exit.draw(self.screen)
 
         # Zone vidéo
