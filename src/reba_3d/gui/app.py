@@ -121,6 +121,15 @@ class REBAApp:
         # Depth/3D data
         self.depth_intrinsics = None  # Camera intrinsics for 3D projection
         self.use_3d = True  # Use 3D angles when available
+        self.current_depth_frame = None  # Depth frame pour traitement temps réel
+        self._last_depth_data = None  # Dernières données depth copiées (numpy array)
+        self.frozen_depth_data = None  # Données depth figées pour mesure (numpy array)
+
+        # Mode mesure de distance
+        self.measure_mode = False
+        self.measure_points = []  # Liste de points cliqués [(x, y), ...]
+        self.measure_distance = None  # Distance calculée en mètres
+        self.measure_points_3d = []  # Points 3D correspondants
 
         # Comparison mode (shows both 2D and 3D scores)
         self.show_comparison = False
@@ -220,6 +229,17 @@ class REBAApp:
             callback=self._on_comparison_toggle,
             color_on=ORANGE,
             color_off=BLUE
+        )
+        y += button_height + padding
+
+        # --- Bouton Mesurer Taille ---
+        self.btn_measure = ToggleButton(
+            x, y, button_width, button_height,
+            text_on="Annuler Mesure",
+            text_off="Mesurer Taille",
+            callback=self._on_measure_toggle,
+            color_on=RED,
+            color_off=(100, 50, 150)  # Violet
         )
         y += button_height + padding + 10
 
@@ -453,18 +473,195 @@ class REBAApp:
         self.paused = state
         if state:
             self.pause_event.set()
-            # En mode inline, figer le frame actuel
-            if self.mode == "inline":
-                with self.frame_lock:
-                    if self.current_frame is not None:
-                        self.frozen_frame = self.current_frame.copy()
+            # Figer le frame et le depth actuels
+            with self.frame_lock:
+                if self.current_frame is not None:
+                    self.frozen_frame = self.current_frame.copy()
+                # Utiliser les données depth déjà copiées dans _process_frame
+                if hasattr(self, '_last_depth_data') and self._last_depth_data is not None:
+                    self.frozen_depth_data = self._last_depth_data.copy()
+                    logger.debug(f"Depth figé: {self.frozen_depth_data.shape}")
+                else:
+                    self.frozen_depth_data = None
+                    logger.warning("Pas de données depth disponibles")
             self.log_panel.add_info("Pause activée")
             logger.debug("Pause activée")
         else:
             self.pause_event.clear()
             self.frozen_frame = None
+            self.frozen_depth_data = None
+            # Désactiver le mode mesure si on reprend la lecture
+            if self.measure_mode or self.measure_points:
+                self._reset_measure_mode()
+                self.btn_measure.set_state(False)
             self.log_panel.add_info("Lecture reprise")
             logger.debug("Lecture reprise")
+
+    def _on_measure_toggle(self, state: bool) -> None:
+        """Callback pour activer/désactiver le mode mesure de distance."""
+        if state:
+            # Vérifier qu'on est en pause
+            if not self.paused:
+                self.log_panel.add_error("Mettez en pause d'abord")
+                self.btn_measure.set_state(False)
+                return
+            # Vérifier qu'on a le depth figé
+            if self.frozen_depth_data is None:
+                self.log_panel.add_error("Pas de données depth")
+                self.btn_measure.set_state(False)
+                return
+            # Vérifier les intrinsics
+            if self.depth_intrinsics is None:
+                self.log_panel.add_error("Pas d'intrinsics caméra")
+                self.btn_measure.set_state(False)
+                return
+
+            self.measure_mode = True
+            self.measure_points = []
+            self.measure_points_3d = []
+            self.measure_distance = None
+            self.log_panel.add_info("Mode mesure: cliquez 2 points")
+            logger.debug(f"Mode mesure activé, depth shape: {self.frozen_depth_data.shape}")
+        else:
+            self._reset_measure_mode()
+
+    def _reset_measure_mode(self) -> None:
+        """Réinitialise le mode mesure."""
+        self.measure_mode = False
+        self.measure_points = []
+        self.measure_points_3d = []
+        self.measure_distance = None
+        self.log_panel.add_info("Mode mesure désactivé")
+
+    def _handle_measure_click(self, pos: tuple, point_index: int = 0) -> None:
+        """
+        Gère un clic en mode mesure de distance.
+
+        Args:
+            pos: Position du clic (x, y) dans la fenêtre Pygame
+            point_index: 0 pour point 1 (clic gauche), 1 pour point 2 (clic droit)
+        """
+        if not self.measure_mode and not self.measure_points:
+            return
+
+        # Vérifier si le clic est dans la zone vidéo
+        video_rect = self.video_display.rect
+        if not video_rect.collidepoint(pos):
+            return
+
+        # Convertir les coordonnées Pygame en coordonnées image
+        # La vidéo est centrée dans video_display
+        display_frame = self.frozen_frame if self.frozen_frame is not None else self.current_frame
+        if display_frame is None:
+            return
+
+        frame_h, frame_w = display_frame.shape[:2]
+
+        # Calculer le scale et l'offset de l'image dans la zone vidéo
+        scale = min(video_rect.width / frame_w, video_rect.height / frame_h)
+        display_w, display_h = int(frame_w * scale), int(frame_h * scale)
+        offset_x = video_rect.x + (video_rect.width - display_w) // 2
+        offset_y = video_rect.y + (video_rect.height - display_h) // 2
+
+        # Vérifier si le clic est dans l'image affichée
+        click_x, click_y = pos
+        if not (offset_x <= click_x <= offset_x + display_w and
+                offset_y <= click_y <= offset_y + display_h):
+            return
+
+        # Convertir en coordonnées image originale
+        img_x = int((click_x - offset_x) / scale)
+        img_y = int((click_y - offset_y) / scale)
+
+        # Projeter en 3D
+        point_3d = self._project_to_3d(img_x, img_y)
+
+        if point_3d is None:
+            self.log_panel.add_warning("Depth invalide à ce point")
+            return
+
+        # Initialiser les listes si nécessaire
+        while len(self.measure_points) < 2:
+            self.measure_points.append(None)
+            self.measure_points_3d.append(None)
+
+        # Mettre à jour le point spécifié
+        self.measure_points[point_index] = (img_x, img_y)
+        self.measure_points_3d[point_index] = point_3d
+
+        point_num = point_index + 1
+        depth_m = point_3d[2]
+        self.log_panel.add_info(f"Point {point_num}: ({img_x}, {img_y}) z={depth_m:.2f}m")
+
+        # Si on a les 2 points, calculer la distance
+        if self.measure_points[0] is not None and self.measure_points[1] is not None:
+            self._calculate_distance()
+
+    def _project_to_3d(self, x: int, y: int):
+        """
+        Projette un point 2D en 3D en utilisant les données depth figées.
+
+        Args:
+            x, y: Coordonnées pixel dans l'image
+
+        Returns:
+            Point 3D [x, y, z] en mètres ou None si invalide
+        """
+        if self.frozen_depth_data is None or self.depth_intrinsics is None:
+            logger.debug("Pas de données depth figées ou intrinsics")
+            return None
+
+        try:
+            import pyrealsense2 as rs
+
+            # Vérifier les bornes de l'image
+            height, width = self.frozen_depth_data.shape[:2]
+
+            if x < 0 or x >= width or y < 0 or y >= height:
+                logger.debug(f"Coordonnées hors bornes: ({x}, {y}) vs ({width}x{height})")
+                return None
+
+            # Récupérer la valeur depth brute (uint16)
+            depth_raw = self.frozen_depth_data[y, x]
+
+            # Convertir en mètres (depth scale RealSense = 0.001 par défaut)
+            depth_scale = 0.001  # 1mm par unité
+            depth = float(depth_raw) * depth_scale
+
+            if depth <= 0 or depth > 10.0:
+                logger.debug(f"Depth invalide: {depth}m (raw={depth_raw}) à ({x}, {y})")
+                return None
+
+            # Déprojeter en 3D
+            point_3d = rs.rs2_deproject_pixel_to_point(
+                self.depth_intrinsics, [float(x), float(y)], depth
+            )
+            return np.array(point_3d)
+
+        except Exception as e:
+            logger.debug(f"Erreur projection 3D: {e}")
+            return None
+
+    def _calculate_distance(self) -> None:
+        """Calcule la distance 3D entre les deux points mesurés."""
+        if len(self.measure_points_3d) < 2:
+            return
+
+        p1 = self.measure_points_3d[0]
+        p2 = self.measure_points_3d[1]
+
+        if p1 is None or p2 is None:
+            return
+
+        # Distance euclidienne 3D
+        distance = np.linalg.norm(p2 - p1)
+        self.measure_distance = distance
+
+        # Convertir en cm pour l'affichage
+        distance_cm = distance * 100
+
+        self.log_panel.add_success(f"Taille: {distance_cm:.1f} cm")
+        logger.info(f"Distance mesurée: {distance_cm:.1f} cm (3D: {p1} -> {p2})")
 
     def _on_exit(self) -> None:
         """Callback pour quitter."""
@@ -705,6 +902,16 @@ class REBAApp:
         """
         import cv2
 
+        # Stocker le depth frame et ses données pour les mesures de distance
+        self.current_depth_frame = depth_frame
+        if depth_frame is not None:
+            try:
+                # Stocker une copie des données depth à chaque frame
+                # pour que les données soient disponibles au moment de la pause
+                self._last_depth_data = np.asanyarray(depth_frame.get_data()).copy()
+            except Exception:
+                self._last_depth_data = None
+
         output_frame = frame.copy()
         keypoints = None
 
@@ -940,6 +1147,12 @@ class REBAApp:
                         self.btn_pause.toggle()
                         self._on_pause_toggle(self.btn_pause.state)
 
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                if event.button == 1:  # Clic gauche = point 1
+                    self._handle_measure_click(event.pos, point_index=0)
+                elif event.button == 3:  # Clic droit = point 2
+                    self._handle_measure_click(event.pos, point_index=1)
+
             # Propager aux composants
             self.mode_selector.handle_event(event)
             self.btn_capture.handle_event(event)
@@ -947,6 +1160,7 @@ class REBAApp:
             self.btn_calibration.handle_event(event)
             self.btn_scores.handle_event(event)
             self.btn_comparison.handle_event(event)
+            self.btn_measure.handle_event(event)
             self.score_load.handle_event(event)
             self.score_coupling.handle_event(event)
             self.score_activity.handle_event(event)
@@ -956,11 +1170,87 @@ class REBAApp:
         """Met à jour l'état de l'application."""
         # Mettre à jour l'affichage vidéo
         with self.frame_lock:
-            # En mode pause inline, afficher le frame figé
+            # Déterminer quel frame afficher
+            display_frame = None
             if self.paused and self.mode == "inline" and self.frozen_frame is not None:
-                self.video_display.set_frame(self.frozen_frame)
+                display_frame = self.frozen_frame.copy()
             elif self.current_frame is not None:
-                self.video_display.set_frame(self.current_frame)
+                display_frame = self.current_frame.copy()
+
+            # Ajouter l'overlay de mesure si nécessaire
+            if display_frame is not None and (self.measure_mode or self.measure_points):
+                display_frame = self._draw_measure_overlay(display_frame)
+
+            if display_frame is not None:
+                self.video_display.set_frame(display_frame)
+
+    def _draw_measure_overlay(self, frame) -> np.ndarray:
+        """
+        Dessine l'overlay de mesure de distance sur le frame.
+
+        Args:
+            frame: Image BGR
+
+        Returns:
+            Frame avec overlay de mesure
+        """
+        import cv2
+
+        # Dessiner les points cliqués
+        for i, point in enumerate(self.measure_points):
+            if point is None:
+                continue
+            px, py = point
+            # Cercle du point
+            color = (0, 255, 255) if i == 0 else (255, 0, 255)  # Jaune puis magenta
+            cv2.circle(frame, (px, py), 8, color, -1)
+            cv2.circle(frame, (px, py), 10, (255, 255, 255), 2)
+
+            # Numéro du point
+            label = "1 (G)" if i == 0 else "2 (D)"
+            cv2.putText(
+                frame, label,
+                (px + 15, py + 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2
+            )
+
+        # Dessiner la ligne entre les points
+        if (len(self.measure_points) >= 2 and
+            self.measure_points[0] is not None and
+            self.measure_points[1] is not None):
+            p1 = self.measure_points[0]
+            p2 = self.measure_points[1]
+            cv2.line(frame, p1, p2, (0, 255, 0), 2)
+
+            # Afficher la distance au milieu de la ligne
+            if self.measure_distance is not None:
+                mid_x = (p1[0] + p2[0]) // 2
+                mid_y = (p1[1] + p2[1]) // 2
+
+                distance_cm = self.measure_distance * 100
+                text = f"{distance_cm:.1f} cm"
+
+                # Fond pour le texte
+                (text_w, text_h), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)
+                cv2.rectangle(
+                    frame,
+                    (mid_x - text_w // 2 - 5, mid_y - text_h - 10),
+                    (mid_x + text_w // 2 + 5, mid_y + 5),
+                    (0, 0, 0), -1
+                )
+                cv2.putText(
+                    frame, text,
+                    (mid_x - text_w // 2, mid_y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2
+                )
+
+        # Instructions si en mode mesure
+        if self.measure_mode:
+            text = "Gauche=Pt1  Droit=Pt2"
+            cv2.putText(
+                frame, text,
+                (10, frame.shape[0] - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2
+            )
+
+        return frame
 
     def _draw(self) -> None:
         """Dessine l'interface."""
@@ -992,6 +1282,7 @@ class REBAApp:
         self.btn_calibration.draw(self.screen)
         self.btn_scores.draw(self.screen)
         self.btn_comparison.draw(self.screen)
+        self.btn_measure.draw(self.screen)
 
         # Label section paramètres
         params_font = pygame.font.Font(None, 18)
