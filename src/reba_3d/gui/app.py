@@ -23,7 +23,7 @@ from reba_3d.gui.components import (
 # Hauteur du graphique en bas de la fenêtre
 GRAPH_HEIGHT = 140
 from reba_3d.config import get_config
-from reba_3d.config.settings import OPENPOSE_MODE, V4L2_DEVICE, V4L2_OPENPOSE_JSON_DIR
+from reba_3d.config.settings import OPENPOSE_MODE
 from reba_3d.config.calibration_store import (
     get_calibration_manager, save_calibration, load_calibration
 )
@@ -502,7 +502,7 @@ class REBAApp:
             self.log_panel.add_error(f"Erreur caméra: {str(e)[:30]}")
 
     def _capture_offline(self) -> None:
-        """Thread de capture en mode offline (fichier .bag) avec streaming V4L2."""
+        """Thread de capture en mode offline (fichier .bag)."""
         bag_path = self.bag_directory / self.default_bag_name
 
         if not bag_path.exists():
@@ -511,8 +511,6 @@ class REBAApp:
             self.capturing = False
             self.btn_capture.set_state(False)
             return
-
-        v4l2_writer = None
 
         try:
             import pyrealsense2 as rs
@@ -544,39 +542,6 @@ class REBAApp:
                 self.depth_intrinsics = None
                 self.log_panel.add_warning("Mode 2D (pas de depth)")
 
-            # Initialiser V4L2 si mode v4l2 activé
-            if OPENPOSE_MODE == "v4l2":
-                try:
-                    from reba_3d.capture.v4l2_stream import V4L2Writer
-
-                    # Obtenir dimensions depuis le premier frame
-                    first_frames = pipeline.wait_for_frames(timeout_ms=5000)
-                    first_aligned = align.process(first_frames)
-                    first_color = first_aligned.get_color_frame()
-                    first_depth = first_aligned.get_depth_frame()
-
-                    if first_color:
-                        width = first_color.get_width()
-                        height = first_color.get_height()
-
-                        v4l2_writer = V4L2Writer(
-                            device=V4L2_DEVICE,
-                            width=width,
-                            height=height,
-                        )
-                        logger.info(f"V4L2 streaming activé: {V4L2_DEVICE}")
-                        self.log_panel.add_success(f"V4L2: {V4L2_DEVICE}")
-
-                        # Traiter le premier frame avec depth
-                        frame = np.asanyarray(first_color.get_data())
-                        frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-                        v4l2_writer.write(frame)
-                        self._process_frame(frame, first_depth)
-
-                except Exception as e:
-                    logger.error(f"Erreur V4L2: {e}")
-                    self.log_panel.add_error(f"V4L2 erreur: {str(e)[:25]}")
-
             was_paused = False
             frame_count = 0
 
@@ -597,15 +562,11 @@ class REBAApp:
                     frames = pipeline.wait_for_frames(timeout_ms=1000)
                     aligned = align.process(frames)
                     color_frame = aligned.get_color_frame()
-                    depth_frame = aligned.get_depth_frame()  # Frame depth alignée
+                    depth_frame = aligned.get_depth_frame()
 
                     if color_frame:
                         frame = np.asanyarray(color_frame.get_data())
                         frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-
-                        # Écrire sur V4L2 si disponible
-                        if v4l2_writer is not None:
-                            v4l2_writer.write(frame)
 
                         # Passer le depth_frame pour calcul 3D
                         self._process_frame(frame, depth_frame)
@@ -630,11 +591,6 @@ class REBAApp:
         except Exception as e:
             logger.exception(f"Erreur lecture: {e}")
             self.log_panel.add_error(f"Erreur lecture: {str(e)[:30]}")
-        finally:
-            # Fermer V4L2 writer
-            if v4l2_writer is not None:
-                v4l2_writer.close()
-                logger.info("V4L2 writer fermé")
 
         self.capturing = False
         self.btn_capture.set_state(False)

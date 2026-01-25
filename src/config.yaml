@@ -54,64 +54,11 @@ paths:
   output_directory: "output"
 
 # -----------------------------------------------------------------------------
-# OpenPose Configuration
+# OpenPose Configuration (installation locale avec pyopenpose)
 # -----------------------------------------------------------------------------
 openpose:
-  # Mode d'exécution: "local" ou "v4l2"
-  #
-  # - local: OpenPose installé sur la machine (pyopenpose)
-  # - v4l2: OpenPose via Docker avec streaming V4L2 (TEMPS RÉEL)
-  #
-  mode: "local"
-
-  # =====================================================================
-  # MODE LOCAL (pyopenpose)
-  # =====================================================================
-  local:
-    path: "/home/hdd/openpose"
-
-  # =====================================================================
-  # MODE V4L2 (streaming temps réel avec Docker)
-  # =====================================================================
-  # Ce mode utilise une webcam virtuelle Linux (V4L2 loopback) pour
-  # streamer les frames RGB vers OpenPose en temps réel.
-  #
-  # ÉTAPE 1: Créer le device V4L2 loopback (exclusive_caps=1 requis!)
-  #   sudo modprobe v4l2loopback devices=1 video_nr=10 card_label="RGB_OpenPose" exclusive_caps=1
-  #
-  # ÉTAPE 2: Créer le répertoire RAM pour les JSON (latence minimale)
-  #   mkdir -p /dev/shm/openpose_json
-  #
-  #   Note: /dev/shm est un tmpfs (système de fichiers en RAM) déjà
-  #   monté par défaut sur Linux. Ne pas le créer manuellement.
-  #
-  # ÉTAPE 3: Lancer OpenPose Docker avec --camera (--privileged requis!)
-  #   docker run -it --privileged --gpus all --ipc=host \
-  #     --device=/dev/video10 \
-  #     -v /dev/shm/openpose_json:/data/out \
-  #     cwaffles/openpose \
-  #     ./build/examples/openpose/openpose.bin \
-  #     --camera 10 \
-  #     --write_json /data/out \
-  #     --model_pose COCO \
-  #     --net_resolution 320x176 \
-  #     --number_people_max 1 \
-  #     --display 0
-  #
-  # ÉTAPE 4: Lancer l'application (GUI ou CLI)
-  #   python -m reba_3d gui  # ou: reba3d pipeline --bag recording.bag
-  #
-  v4l2:
-    # Device V4L2 loopback (créé avec modprobe v4l2loopback)
-    device: "/dev/video10"
-
-    # Répertoire où OpenPose écrit les JSON (--write_json)
-    # /dev/shm est en RAM pour une latence minimale
-    json_output_dir: "/dev/shm/openpose_json"
-
-    # Taille du buffer circulaire pour les frames depth
-    # (permet la synchronisation avec les keypoints OpenPose)
-    depth_buffer_size: 60
+  # Chemin vers l'installation OpenPose
+  path: "/home/hdd/openpose"
 
 # -----------------------------------------------------------------------------
 # Enregistrement vidéo

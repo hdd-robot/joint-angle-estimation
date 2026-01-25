@@ -17,16 +17,8 @@ OUTPUT_DIR = os.environ.get("REBA_OUTPUT_DIR", os.path.expanduser("~/openpose_ou
 # OpenPose execution mode
 # =============================================================================
 
-# Mode d'exécution:
-# - "local": OpenPose installé sur la machine (pyopenpose)
-# - "v4l2": OpenPose via Docker avec streaming V4L2 (temps réel)
-OPENPOSE_MODE = os.environ.get("REBA_OPENPOSE_MODE", "local")
-
-# Configuration V4L2 - streaming temps réel
-# Note: /dev/shm est un tmpfs (RAM) pour une latence minimale
-V4L2_DEVICE = os.environ.get("REBA_V4L2_DEVICE", "/dev/video10")
-V4L2_OPENPOSE_JSON_DIR = os.environ.get("REBA_V4L2_JSON_DIR", "/dev/shm/openpose_json")
-V4L2_DEPTH_BUFFER_SIZE = int(os.environ.get("REBA_V4L2_BUFFER_SIZE", "60"))  # Buffer circulaire depth
+# Mode d'exécution: OpenPose installé en local (pyopenpose)
+OPENPOSE_MODE = "local"
 
 # =============================================================================
 # Recording settings
