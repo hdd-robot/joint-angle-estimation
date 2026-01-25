@@ -16,9 +16,12 @@ import pygame
 import numpy as np
 
 from reba_3d.gui.components import (
-    Button, ToggleButton, RadioButtonGroup, LogPanel, VideoDisplay,
+    Button, ToggleButton, RadioButtonGroup, LogPanel, VideoDisplay, ScoreGraph,
     WHITE, BLACK, GRAY, DARK_GRAY, GREEN, RED, BLUE, ORANGE
 )
+
+# Hauteur du graphique en bas de la fenêtre
+GRAPH_HEIGHT = 140
 from reba_3d.config import get_config
 from reba_3d.config.settings import OPENPOSE_MODE, V4L2_DEVICE, V4L2_OPENPOSE_JSON_DIR
 from reba_3d.config.calibration_store import (
@@ -66,8 +69,9 @@ class REBAApp:
         self.config = get_config()
 
         # Utiliser les valeurs passées en argument ou celles de la config
+        # Ajouter GRAPH_HEIGHT pour le graphique en bas
         self.width = width if width is not None else self.config.gui.width
-        self.height = height if height is not None else self.config.gui.height
+        self.height = (height if height is not None else self.config.gui.height) + GRAPH_HEIGHT
         self.bag_directory = Path(bag_directory if bag_directory is not None else self.config.paths.bag_directory)
         self.default_bag_name = default_bag_name if default_bag_name is not None else self.config.paths.default_bag_file
 
@@ -211,7 +215,8 @@ class REBAApp:
         y += button_height + padding
 
         # --- Spacer ---
-        y = self.height - button_height - padding - 50
+        # Position du bouton Exit au-dessus du graphique
+        y = self.height - GRAPH_HEIGHT - button_height - padding - 10
 
         # --- Bouton Exit ---
         self.btn_exit = Button(
@@ -221,18 +226,27 @@ class REBAApp:
             color=RED
         )
 
+        # --- Hauteur de la zone principale (sans le graphique) ---
+        main_height = self.height - GRAPH_HEIGHT
+
         # --- Zone vidéo (colonne centrale) ---
         video_x = self.left_panel_width
         video_width = self.width - self.left_panel_width - self.right_panel_width
         self.video_display = VideoDisplay(
-            video_x, 0, video_width, self.height
+            video_x, 0, video_width, main_height
         )
 
         # --- Panneau de logs (colonne droite) ---
         log_x = self.width - self.right_panel_width
         self.log_panel = LogPanel(
-            log_x, 0, self.right_panel_width, self.height,
+            log_x, 0, self.right_panel_width, main_height,
             max_lines=self.config.logging.max_lines
+        )
+
+        # --- Graphique des scores (en bas, toute la largeur) ---
+        self.score_graph = ScoreGraph(
+            0, main_height, self.width, GRAPH_HEIGHT,
+            max_points=300  # ~10 secondes à 30 FPS
         )
 
         # Message de bienvenue
@@ -424,6 +438,10 @@ class REBAApp:
         self.pause_event.clear()
         self.frozen_frame = None
         self.btn_pause.set_state(False)
+        # Réinitialiser le graphique
+        self.score_graph.clear()
+        self.current_reba_score = None
+        self.current_reba_score_2d = None
         self.log_panel.add_info("Capture arrêtée")
 
     def _capture_inline(self) -> None:
@@ -726,6 +744,11 @@ class REBAApp:
                                     calibrated_2d = self.calibration_manager.apply_all(raw_angles_2d)
                                     self.current_reba_score_2d = self.reba_scorer_2d.update(calibrated_2d)
 
+                            # Mettre à jour le graphique des scores
+                            score_3d = self.current_reba_score.final_score if self.current_reba_score else None
+                            score_2d = self.current_reba_score_2d.final_score if self.current_reba_score_2d else None
+                            self.score_graph.add_scores(score_3d, score_2d)
+
                             # Dessiner le score sur la frame si activé
                             if self.show_scores and self.current_reba_score:
                                 output_frame = self._draw_reba_overlay(output_frame)
@@ -920,11 +943,14 @@ class REBAApp:
         # Fond
         self.screen.fill(DARK_GRAY)
 
+        # Hauteur de la zone principale (sans graphique)
+        main_height = self.height - GRAPH_HEIGHT
+
         # Panneau gauche (fond)
         pygame.draw.rect(
             self.screen,
             (40, 40, 50),
-            pygame.Rect(0, 0, self.left_panel_width, self.height)
+            pygame.Rect(0, 0, self.left_panel_width, main_height)
         )
 
         # Titre panneau gauche
@@ -949,6 +975,9 @@ class REBAApp:
 
         # Panneau logs
         self.log_panel.draw(self.screen)
+
+        # Graphique des scores (en bas)
+        self.score_graph.draw(self.screen)
 
         # Rafraîchir l'écran
         pygame.display.flip()

@@ -457,3 +457,198 @@ class VideoDisplay:
         elif "very" in label_lower or "très" in label_lower:
             return (200, 0, 100)
         return WHITE
+
+
+class ScoreGraph:
+    """
+    Graphique temps réel des scores REBA 2D et 3D.
+
+    Affiche deux courbes sur le même graphique:
+    - Vert: Score 3D
+    - Bleu: Score 2D
+    """
+
+    def __init__(
+        self,
+        x: int,
+        y: int,
+        width: int,
+        height: int,
+        max_points: int = 300,
+        bg_color: Tuple[int, int, int] = (20, 20, 30),
+        color_3d: Tuple[int, int, int] = (0, 255, 100),
+        color_2d: Tuple[int, int, int] = (100, 150, 255),
+    ):
+        """
+        Initialise le graphique.
+
+        Args:
+            x, y: Position du graphique
+            width, height: Dimensions
+            max_points: Nombre maximum de points affichés (frames)
+            bg_color: Couleur de fond
+            color_3d: Couleur de la courbe 3D
+            color_2d: Couleur de la courbe 2D
+        """
+        self.rect = pygame.Rect(x, y, width, height)
+        self.max_points = max_points
+        self.bg_color = bg_color
+        self.color_3d = color_3d
+        self.color_2d = color_2d
+
+        # Historique des scores
+        self.scores_3d: List[int] = []
+        self.scores_2d: List[int] = []
+
+        # Plage Y (scores REBA: 1-12)
+        self.y_min = 1
+        self.y_max = 12
+
+        # Marges internes pour les axes
+        self.margin_left = 35
+        self.margin_right = 10
+        self.margin_top = 15
+        self.margin_bottom = 20
+
+        # Polices
+        self.font = pygame.font.Font(None, 16)
+        self.title_font = pygame.font.Font(None, 18)
+
+    def add_scores(self, score_3d: Optional[int], score_2d: Optional[int] = None) -> None:
+        """
+        Ajoute une paire de scores à l'historique.
+
+        Args:
+            score_3d: Score REBA 3D (ou principal si pas de 2D)
+            score_2d: Score REBA 2D (optionnel, pour comparaison)
+        """
+        if score_3d is not None:
+            self.scores_3d.append(score_3d)
+            if len(self.scores_3d) > self.max_points:
+                self.scores_3d.pop(0)
+
+        if score_2d is not None:
+            self.scores_2d.append(score_2d)
+            if len(self.scores_2d) > self.max_points:
+                self.scores_2d.pop(0)
+
+    def clear(self) -> None:
+        """Efface l'historique des scores."""
+        self.scores_3d.clear()
+        self.scores_2d.clear()
+
+    def _value_to_y(self, value: int) -> int:
+        """Convertit un score REBA en coordonnée Y."""
+        graph_height = self.rect.height - self.margin_top - self.margin_bottom
+        # Inverser Y (haut = valeurs hautes)
+        ratio = (value - self.y_min) / (self.y_max - self.y_min)
+        return int(self.rect.y + self.margin_top + graph_height * (1 - ratio))
+
+    def _index_to_x(self, index: int, total: int) -> int:
+        """Convertit un index en coordonnée X."""
+        graph_width = self.rect.width - self.margin_left - self.margin_right
+        if total <= 1:
+            return self.rect.x + self.margin_left
+        ratio = index / (total - 1)
+        return int(self.rect.x + self.margin_left + graph_width * ratio)
+
+    def draw(self, surface: pygame.Surface) -> None:
+        """Dessine le graphique."""
+        # Fond
+        pygame.draw.rect(surface, self.bg_color, self.rect)
+        pygame.draw.rect(surface, GRAY, self.rect, 1)
+
+        # Zone de dessin du graphique
+        graph_x = self.rect.x + self.margin_left
+        graph_y = self.rect.y + self.margin_top
+        graph_width = self.rect.width - self.margin_left - self.margin_right
+        graph_height = self.rect.height - self.margin_top - self.margin_bottom
+
+        # Grille horizontale (niveaux de risque)
+        risk_levels = [
+            (1, "Negligible", (0, 100, 0)),
+            (3, "Faible", (100, 150, 0)),
+            (6, "Moyen", (200, 150, 0)),
+            (10, "Élevé", (200, 50, 0)),
+            (12, "Très élevé", (150, 0, 50)),
+        ]
+
+        for level, label, color in risk_levels:
+            y = self._value_to_y(level)
+            # Ligne de grille
+            pygame.draw.line(
+                surface, (50, 50, 60),
+                (graph_x, y), (graph_x + graph_width, y), 1
+            )
+            # Label Y
+            text = self.font.render(str(level), True, LIGHT_GRAY)
+            surface.blit(text, (self.rect.x + 5, y - 6))
+
+        # Axe Y
+        pygame.draw.line(
+            surface, LIGHT_GRAY,
+            (graph_x, graph_y), (graph_x, graph_y + graph_height), 1
+        )
+
+        # Axe X
+        pygame.draw.line(
+            surface, LIGHT_GRAY,
+            (graph_x, graph_y + graph_height),
+            (graph_x + graph_width, graph_y + graph_height), 1
+        )
+
+        # Label Frames
+        frames_text = self.font.render("Frames", True, LIGHT_GRAY)
+        surface.blit(
+            frames_text,
+            (self.rect.x + self.rect.width - 50, self.rect.y + self.rect.height - 15)
+        )
+
+        # Dessiner la courbe 3D (verte)
+        if len(self.scores_3d) > 1:
+            points_3d = []
+            for i, score in enumerate(self.scores_3d):
+                x = self._index_to_x(i, len(self.scores_3d))
+                y = self._value_to_y(score)
+                points_3d.append((x, y))
+            pygame.draw.lines(surface, self.color_3d, False, points_3d, 2)
+
+        # Dessiner la courbe 2D (bleue)
+        if len(self.scores_2d) > 1:
+            points_2d = []
+            for i, score in enumerate(self.scores_2d):
+                x = self._index_to_x(i, len(self.scores_2d))
+                y = self._value_to_y(score)
+                points_2d.append((x, y))
+            pygame.draw.lines(surface, self.color_2d, False, points_2d, 2)
+
+        # Légende
+        legend_x = graph_x + 10
+        legend_y = self.rect.y + 3
+
+        # 3D
+        pygame.draw.line(
+            surface, self.color_3d,
+            (legend_x, legend_y + 5), (legend_x + 20, legend_y + 5), 2
+        )
+        text_3d = self.font.render("3D", True, self.color_3d)
+        surface.blit(text_3d, (legend_x + 25, legend_y))
+
+        # 2D
+        pygame.draw.line(
+            surface, self.color_2d,
+            (legend_x + 60, legend_y + 5), (legend_x + 80, legend_y + 5), 2
+        )
+        text_2d = self.font.render("2D", True, self.color_2d)
+        surface.blit(text_2d, (legend_x + 85, legend_y))
+
+        # Score actuel
+        if self.scores_3d:
+            current_3d = self.scores_3d[-1]
+            text = self.font.render(f"3D:{current_3d}", True, self.color_3d)
+            surface.blit(text, (self.rect.x + self.rect.width - 100, legend_y))
+
+        if self.scores_2d:
+            current_2d = self.scores_2d[-1]
+            text = self.font.render(f"2D:{current_2d}", True, self.color_2d)
+            surface.blit(text, (self.rect.x + self.rect.width - 50, legend_y))

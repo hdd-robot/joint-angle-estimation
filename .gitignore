@@ -1,5 +1,6 @@
 src/bags
 src/bag
+src/.claude
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
