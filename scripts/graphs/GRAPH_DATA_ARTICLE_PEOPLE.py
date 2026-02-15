@@ -1,5 +1,7 @@
 import os as _os
 import pandas as pd
+import matplotlib
+matplotlib.use("Agg")
 from matplotlib.colors import LinearSegmentedColormap
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -7,6 +9,8 @@ import numpy as np
 import re
 
 _HERE = _os.path.dirname(_os.path.abspath(__file__))
+OUTPUT_DIR = _os.path.join(_HERE, "output")
+_os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # ---------------------------
 # Load CSV
@@ -70,8 +74,6 @@ custom_cmap.set_bad(color="lightgrey")  # NaN en gris
 # HEATMAP Error (robuste à doublons)
 # ---------------------------
 if {"Person_ID", "Window_ID", "Error"}.issubset(df.columns):
-    plt.figure(figsize=(16, 8))
-
     # pivot_table pour éviter crash si doublons Person_ID/Window_ID
     heatmap_data = df.pivot_table(
         index="Person_ID",
@@ -81,10 +83,15 @@ if {"Person_ID", "Window_ID", "Error"}.issubset(df.columns):
     )
 
     mask = heatmap_data.isna()
-    annot = heatmap_data.round(1).astype(object)
-    annot[mask] = ""
+    # Annotations en entier (pas de décimale)
+    annot = heatmap_data.applymap(lambda v: str(int(v)) if pd.notna(v) else "")
 
-    sns.heatmap(
+    n_rows, n_cols = heatmap_data.shape
+    fig_w = max(18, 0.55 * n_cols)
+    fig_h = max(8, 0.7 * n_rows)
+
+    plt.figure(figsize=(fig_w, fig_h))
+    ax = sns.heatmap(
         heatmap_data,
         cmap=custom_cmap,
         center=0,
@@ -92,13 +99,20 @@ if {"Person_ID", "Window_ID", "Error"}.issubset(df.columns):
         mask=mask,
         annot=annot,
         fmt="",
-        linewidths=0.5,
-        cbar_kws={"label": "Error (REBA_2D - REBA_3D)"}
+        annot_kws={"size": 14, "weight": "bold"},
+        linewidths=1,
+        linecolor="white",
+        cbar_kws={"label": "Error (REBA_2D - REBA_3D)", "shrink": 0.8},
     )
-    plt.title("Difference REBA 2D vs 3D by Person and Window")
-    plt.xlabel("Window")
-    plt.ylabel("Person ID")
+    ax.figure.axes[-1].yaxis.label.set_size(13)  # colorbar label
+    plt.title("Difference REBA 2D vs 3D by Person and Window", fontsize=16, weight="bold", pad=12)
+    plt.xlabel("Window", fontsize=14)
+    plt.ylabel("Person ID", fontsize=14)
+    plt.xticks(fontsize=11)
+    plt.yticks(fontsize=12, rotation=0)
     plt.tight_layout()
+    plt.savefig(_os.path.join(OUTPUT_DIR, "heatmap_error.png"), dpi=300, bbox_inches="tight")
+    plt.close()
 else:
     print("[WARN] Heatmap: colonnes Person_ID / Window_ID / Error manquantes.")
 
@@ -106,12 +120,25 @@ else:
 # HISTOGRAM Error (ignore NaN)
 # ---------------------------
 if "Error" in df.columns:
-    plt.figure(figsize=(8, 4))
-    df["Error"].dropna().hist(bins=30)
-    plt.title("Global Histogram of Errors (REBA 2D - 3D)")
-    plt.xlabel("Error")
-    plt.ylabel("Frequency")
+    error_vals = df["Error"].dropna()
+    unique_vals = sorted(error_vals.unique())
+    counts = [int((error_vals == v).sum()) for v in unique_vals]
+    labels = [str(int(v)) for v in unique_vals]
+
+    plt.figure(figsize=(7, 7))
+    bars = plt.bar(labels, counts, width=0.6, color="#2171B5", edgecolor="black", linewidth=1)
+    for bar, count in zip(bars, counts):
+        plt.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 3,
+                 str(count), ha="center", va="bottom", fontsize=14, weight="bold")
+    plt.title("Global Histogram of Errors (REBA 2D - 3D)", fontsize=15, weight="bold", pad=12)
+    plt.xlabel("Error", fontsize=14)
+    plt.ylabel("Frequency", fontsize=14)
+    plt.xticks(fontsize=13)
+    plt.yticks(fontsize=13)
     plt.grid(False)
+    plt.tight_layout()
+    plt.savefig(_os.path.join(OUTPUT_DIR, "histogram_error.png"), dpi=300, bbox_inches="tight")
+    plt.close()
 
 # ---------------------------
 # CONFUSION MATRIX (sans invalid)
@@ -128,13 +155,30 @@ confusion = confusion.reindex(index=risk_order_valid, columns=risk_order_valid, 
 
 print(confusion)
 
-plt.figure(figsize=(8, 6))
-sns.heatmap(confusion, annot=True, fmt="d", cmap="Blues")
-plt.title("Confusion Matrix: REBA 2D vs 3D (valid only)")
-plt.xlabel("REBA 3D (Reference)")
-plt.ylabel("REBA 2D")
+plt.figure(figsize=(8, 7))
+ax = sns.heatmap(
+    confusion,
+    annot=True,
+    fmt="d",
+    cmap="Blues",
+    annot_kws={"size": 20, "weight": "bold"},
+    linewidths=2,
+    linecolor="black",
+    square=True,
+    cbar_kws={"shrink": 0.8},
+)
+ax.axhline(0, color="black", lw=3)
+ax.axhline(confusion.shape[0], color="black", lw=3)
+ax.axvline(0, color="black", lw=3)
+ax.axvline(confusion.shape[1], color="black", lw=3)
+plt.title("Confusion Matrix: REBA 2D vs 3D", fontsize=16, weight="bold", pad=12)
+plt.xlabel("REBA 3D (Reference)", fontsize=15)
+plt.ylabel("REBA 2D", fontsize=15)
+plt.xticks(fontsize=13, rotation=30, ha="right")
+plt.yticks(fontsize=13, rotation=0)
 plt.tight_layout()
-plt.show()
+plt.savefig(_os.path.join(OUTPUT_DIR, "confusion_matrix.png"), dpi=300, bbox_inches="tight")
+plt.close()
 
 print(f"Lignes gardées pour la confusion matrix: {len(df_valid)} / {len(df)}")
 
@@ -247,7 +291,8 @@ def run_pca(df_subset: pd.DataFrame, title: str, plot_cumvar: bool = True):
         plt.title(f"PCA — {title}\nVariance expliquée cumulée")
         plt.grid(True)
         plt.tight_layout()
-        plt.show()
+        plt.savefig(_os.path.join(OUTPUT_DIR, f"pca_cumvar_{title.replace(' ', '_').lower()}.png"), dpi=300, bbox_inches="tight")
+        plt.close()
 
     # Contributions PC1-3 (si possible)
     n_pc = min(3, pca.components_.shape[0])
@@ -273,37 +318,117 @@ def plot_biplot_individuals(X_pca, pca, title, color_labels):
     plt.title(f"Biplot — {title} — Individuals colored by REBA")
     plt.grid(True)
     plt.tight_layout()
-    plt.show()
+    plt.savefig(_os.path.join(OUTPUT_DIR, f"biplot_{title.replace(' ', '_').lower()}.png"), dpi=300, bbox_inches="tight")
+    plt.close()
 
+
+# Color palette by body segment for PCA arrows
+_SEGMENT_COLORS = {
+    "Neck": "#E41A1C",
+    "Torso": "#377EB8",
+    "Left_elbow": "#4DAF4A",
+    "Left_knee": "#984EA3",
+    "Left_shoulder": "#FF7F00",
+    "Table": "#A65628",
+    "REBA": "#F781BF",
+}
+
+def _segment_color(var_name):
+    """Return a color based on the body segment of the variable."""
+    base = re.sub(r"_(2D|3D)$", "", var_name)
+    for prefix, color in _SEGMENT_COLORS.items():
+        if base.startswith(prefix):
+            return color
+    return "#333333"
+
+def _short_label(var_name):
+    """Strip _2D/_3D suffix for cleaner labels."""
+    return re.sub(r"_(2D|3D)$", "", var_name)
+
+LOADING_NORM_THRESH = 0.35  # only show arrows with norm >= this
 
 def plot_correlation_plane(pca, df_subset, pc_x, pc_y, title):
     if pca.components_.shape[0] <= max(pc_x, pc_y):
         print(f"[WARN] {title}: pas assez de composantes pour PC{pc_x+1}/PC{pc_y+1}.")
         return
 
-    plt.figure(figsize=(8, 8))
-    circle = plt.Circle((0, 0), 1, facecolor="none", edgecolor="black", linestyle="--")
-    plt.gca().add_artist(circle)
+    fig, ax = plt.subplots(figsize=(10, 10))
+    circle = plt.Circle((0, 0), 1, facecolor="none", edgecolor="black", linestyle="--", lw=1.5)
+    ax.add_artist(circle)
 
     loadings = pca.components_.T[:, [pc_x, pc_y]]
-    for i, var in enumerate(df_subset.columns):
-        plt.arrow(
-            0, 0, loadings[i, 0], loadings[i, 1],
-            color="darkblue", alpha=0.7, head_width=0.02, head_length=0.02
-        )
-        plt.text(loadings[i, 0] * 1.1, loadings[i, 1] * 1.1, var, color="darkred", fontsize=10)
 
-    plt.xlim(-1.1, 1.1)
-    plt.ylim(-1.1, 1.1)
-    plt.xlabel(f"PC{pc_x+1} ({pca.explained_variance_ratio_[pc_x]*100:.1f}% var)")
-    plt.ylabel(f"PC{pc_y+1} ({pca.explained_variance_ratio_[pc_y]*100:.1f}% var)")
-    plt.title(f"Correlation Plane — {title} — PC{pc_x+1} vs PC{pc_y+1}")
-    plt.axhline(0, color="grey", lw=1)
-    plt.axvline(0, color="grey", lw=1)
-    plt.grid(False)
-    plt.gca().set_aspect("equal")
+    # First pass: collect strong arrows info
+    strong = []
+    for i, var in enumerate(df_subset.columns):
+        lx, ly = loadings[i, 0], loadings[i, 1]
+        norm = np.sqrt(lx**2 + ly**2)
+        if norm < LOADING_NORM_THRESH:
+            ax.annotate("", xy=(lx, ly), xytext=(0, 0),
+                        arrowprops=dict(arrowstyle="->,head_width=0.25,head_length=0.15",
+                                        color="#AAAAAA", lw=2.5))
+        else:
+            arrow_angle = np.degrees(np.arctan2(ly, lx))
+            strong.append({"var": var, "lx": lx, "ly": ly, "norm": norm, "arrow_angle": arrow_angle})
+
+    # Detect overlapping labels and nudge ±3 degrees
+    NUDGE_DEG = 3.0
+    OVERLAP_THRESH = 12.0  # degrees apart to consider overlapping
+    nudges = [0.0] * len(strong)
+    for i in range(len(strong)):
+        for j in range(i + 1, len(strong)):
+            diff = abs(strong[i]["arrow_angle"] - strong[j]["arrow_angle"])
+            if diff > 180:
+                diff = 360 - diff
+            if diff < OVERLAP_THRESH:
+                # Push the upper one up, lower one down
+                if strong[i]["ly"] >= strong[j]["ly"]:
+                    nudges[i] += NUDGE_DEG
+                    nudges[j] -= NUDGE_DEG
+                else:
+                    nudges[i] -= NUDGE_DEG
+                    nudges[j] += NUDGE_DEG
+
+    # Second pass: draw arrows and labels
+    for idx, s in enumerate(strong):
+        lx, ly, var = s["lx"], s["ly"], s["var"]
+        color = _segment_color(var)
+        label = _short_label(var)
+
+        ax.annotate("", xy=(lx, ly), xytext=(0, 0),
+                    arrowprops=dict(arrowstyle="->,head_width=0.3,head_length=0.18",
+                                    color=color, lw=3))
+
+        # Label angle = arrow angle + nudge, then flip if upside down
+        angle_deg = s["arrow_angle"] + nudges[idx]
+        text_angle = angle_deg
+        if text_angle > 90:
+            text_angle -= 180
+        elif text_angle < -90:
+            text_angle += 180
+
+        # Place label at nudged position outside arrow tip
+        rad = np.radians(angle_deg)
+        r = s["norm"] * 1.08
+        tx, ty = r * np.cos(rad), r * np.sin(rad)
+        ha = "left" if np.cos(rad) >= 0 else "right"
+
+        ax.text(tx, ty, label, color=color, fontsize=15, weight="bold",
+                ha=ha, va="center", rotation=text_angle, rotation_mode="anchor")
+
+    ax.set_xlim(-1.2, 1.2)
+    ax.set_ylim(-1.2, 1.2)
+    ax.set_title(f"Correlation Plane — {title} — PC{pc_x+1} vs PC{pc_y+1}", fontsize=20, weight="bold", pad=15)
+    ax.axhline(0, color="grey", lw=0.8)
+    ax.axvline(0, color="grey", lw=0.8)
+    ax.set_xlabel(f"PC{pc_x+1} ({pca.explained_variance_ratio_[pc_x]*100:.1f}% var)", fontsize=17)
+    ax.set_ylabel(f"PC{pc_y+1} ({pca.explained_variance_ratio_[pc_y]*100:.1f}% var)", fontsize=17)
+    ax.tick_params(labelsize=14)
+    ax.set_aspect("equal")
+    ax.grid(False)
     plt.tight_layout()
-    plt.show()
+    plt.savefig(_os.path.join(OUTPUT_DIR, f"correlation_plane_{title.replace(' ', '_').lower()}_pc{pc_x+1}_pc{pc_y+1}.png"), dpi=300, bbox_inches="tight")
+    plt.close()
 
 
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
@@ -322,7 +447,8 @@ def plot_biplot_individuals_3d(X_pca, pca, title, color_labels):
     ax.set_zlabel(f"PC3 ({pca.explained_variance_ratio_[2]*100:.1f}%)")
     ax.set_title(f"Biplot 3D — {title} — Individuals colored by REBA")
     plt.tight_layout()
-    plt.show()
+    plt.savefig(_os.path.join(OUTPUT_DIR, f"biplot_3d_{title.replace(' ', '_').lower()}.png"), dpi=300, bbox_inches="tight")
+    plt.close()
 
 
 # Masques REBA valides (pour colorer, et filtrer les lignes)
@@ -346,18 +472,23 @@ if enough_for_pca(df_pca_clean_2d) and enough_for_pca(df_pca_clean_3d):
     var_cum_2d = cumulative_variance(df_pca_clean_2d)
     var_cum_3d = cumulative_variance(df_pca_clean_3d)
 
-    plt.figure(figsize=(8, 6))
-    plt.plot(range(1, len(var_cum_2d) + 1), var_cum_2d * 100, marker="o", label="Angles 2D")
-    plt.plot(range(1, len(var_cum_3d) + 1), var_cum_3d * 100, marker="s", label="Angles 3D")
-    plt.axhline(70, color="grey", ls="--", lw=0.8)
-    plt.axhline(90, color="grey", ls="--", lw=0.8)
-    plt.xlabel("Nombre de composantes principales")
-    plt.ylabel("Variance expliquée cumulée (%)")
-    plt.title("Comparaison de la variance expliquée cumulée\nAngles 2D vs Angles 3D")
-    plt.legend()
-    plt.grid(True)
+    fig, ax = plt.subplots(figsize=(9, 7))
+    ax.plot(range(1, len(var_cum_2d) + 1), var_cum_2d * 100,
+            marker="o", markersize=10, lw=2.5, color="#2171B5", label="2D Angles")
+    ax.plot(range(1, len(var_cum_3d) + 1), var_cum_3d * 100,
+            marker="s", markersize=10, lw=2.5, color="#E41A1C", label="3D Angles")
+    ax.axhline(80, color="grey", ls="--", lw=1.2)
+    ax.text(0.6, 81, "80%", fontsize=13, color="grey", weight="bold")
+    ax.set_xlabel("Number of Principal Components", fontsize=15)
+    ax.set_ylabel("Cumulative Explained Variance (%)", fontsize=15)
+    ax.set_title("Cumulative Explained Variance\n2D Angles vs 3D Angles", fontsize=17, weight="bold", pad=12)
+    ax.legend(fontsize=14, frameon=True, fancybox=True, shadow=True)
+    ax.tick_params(labelsize=13)
+    ax.set_xticks(range(1, max(len(var_cum_2d), len(var_cum_3d)) + 1))
+    ax.grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.show()
+    plt.savefig(_os.path.join(OUTPUT_DIR, "pca_cumvar_comparison_2d_vs_3d.png"), dpi=300, bbox_inches="tight")
+    plt.close()
 else:
     print("[WARN] Variance cumulée: pas assez de données pour comparer 2D et 3D (>=2 lignes et >=2 features).")
 
@@ -386,6 +517,35 @@ else:
     print("\n[WARN] PCA 3D: pas assez de données/colonnes présentes (>=2 lignes et >=2 features).\n")
 
 # ============================================================
+# Concatenated PCA correlation planes (1 row x 4 columns)
+# ============================================================
+from PIL import Image as _PILImage
+
+_pca_panels = [
+    "correlation_plane_angles_2d_pc1_pc2.png",
+    "correlation_plane_angles_2d_pc1_pc3.png",
+    "correlation_plane_angles_3d_pc1_pc2.png",
+    "correlation_plane_angles_3d_pc1_pc3.png",
+]
+_pca_paths = [_os.path.join(OUTPUT_DIR, f) for f in _pca_panels]
+
+if all(_os.path.exists(p) for p in _pca_paths):
+    imgs = [_PILImage.open(p) for p in _pca_paths]
+    # Resize all to same height (use the smallest)
+    min_h = min(im.height for im in imgs)
+    imgs = [im.resize((int(im.width * min_h / im.height), min_h), _PILImage.LANCZOS) for im in imgs]
+    total_w = sum(im.width for im in imgs)
+    concat = _PILImage.new("RGB", (total_w, min_h), "white")
+    x_offset = 0
+    for im in imgs:
+        concat.paste(im, (x_offset, 0))
+        x_offset += im.width
+    concat.save(_os.path.join(OUTPUT_DIR, "correlation_planes_all.png"), dpi=(300, 300))
+    print(f"[OK] Concatenated PCA planes -> correlation_planes_all.png ({total_w}x{min_h})")
+else:
+    print("[WARN] Some PCA plane images missing, skipping concatenation.")
+
+# ============================================================
 # Correlation matrix + Bootstrap IC 95%
 # Display only LOWER triangle, only |r| >= THRESH_R, compact (NO SORT)
 # Annotations: 1 significant figure (e.g., 0.47->0.5, 0.33->0.3)
@@ -398,7 +558,6 @@ cols_present = df_corr.columns.tolist()
 
 if len(cols_present) < 2:
     print("[WARN] Corr/Bootstrap: moins de 2 colonnes après filtrage -> skip.")
-    plt.show()
     raise SystemExit
 
 # ---------------------------
@@ -531,8 +690,8 @@ def plot_lower_triangle_heatmap(mat: pd.DataFrame, title: str, out_png: str, sig
     plt.xticks(rotation=45, ha="right")
     plt.yticks(rotation=0)
     plt.tight_layout()
-    plt.savefig(out_png, dpi=300, bbox_inches="tight")
-    plt.show()
+    plt.savefig(_os.path.join(OUTPUT_DIR, out_png), dpi=300, bbox_inches="tight")
+    plt.close()
 
 
 
@@ -557,5 +716,117 @@ plot_lower_triangle_heatmap(
     sig_figs=1
 )
 
+# ============================================================
+# SPLIT correlation into 3 sub-matrices (2D, 3D, cross 2D vs 3D)
+# ============================================================
 
+def split_heatmap(corr_mat, row_cols, col_cols, title, out_png, lower_triangle=False):
+    """Plot a rectangular sub-matrix of correlations with readable fonts."""
+    row_cols = [c for c in row_cols if c in corr_mat.columns]
+    col_cols = [c for c in col_cols if c in corr_mat.columns]
+    if not row_cols or not col_cols:
+        print(f"[WARN] {title}: no columns available, skipping.")
+        return
+
+    sub = corr_mat.loc[row_cols, col_cols].copy()
+
+    # mask NaN + optional lower triangle
+    mask = sub.isna().values
+    if lower_triangle:
+        mask_upper = np.triu(np.ones(sub.shape, dtype=bool), k=1)
+        mask = mask | mask_upper
+
+    annot = sub.round(2).astype(object)
+    annot.values[mask] = ""
+
+    n_rows, n_cols = sub.shape
+    fig_w = max(8, 0.9 * n_cols + 2)
+    fig_h = max(6, 0.9 * n_rows + 2)
+
+    plt.figure(figsize=(fig_w, fig_h))
+    sns.heatmap(
+        sub,
+        mask=mask,
+        annot=annot,
+        fmt="",
+        cmap="coolwarm",
+        center=0,
+        vmin=-1, vmax=1,
+        annot_kws={"size": 12, "weight": "bold"},
+        linewidths=1,
+        linecolor="white",
+        square=True,
+        cbar_kws={"label": "r", "shrink": 0.8},
+    )
+    plt.title(title, fontsize=16, weight="bold", pad=12)
+    plt.xticks(fontsize=13, rotation=45, ha="right")
+    plt.yticks(fontsize=13, rotation=0)
+    plt.tight_layout()
+    plt.savefig(_os.path.join(OUTPUT_DIR, out_png), dpi=300, bbox_inches="tight")
+    plt.close()
+
+
+# Identify 2D vs 3D column groups
+robust_cols = robust_to_plot.columns.tolist()
+cols_2d_only = [c for c in robust_cols if c.endswith("_2D")]
+cols_3d_only = [c for c in robust_cols if c.endswith("_3D")]
+
+# 1) Intra-2D correlations (lower triangle)
+split_heatmap(
+    robust_to_plot, cols_2d_only, cols_2d_only,
+    "Robust Correlations — 2D Angles",
+    "correlation_split_2d.png",
+    lower_triangle=True,
+)
+
+# 2) Intra-3D correlations (lower triangle)
+split_heatmap(
+    robust_to_plot, cols_3d_only, cols_3d_only,
+    "Robust Correlations — 3D Angles",
+    "correlation_split_3d.png",
+    lower_triangle=True,
+)
+
+# 3) Cross 2D vs 3D correlations
+split_heatmap(
+    robust_to_plot, cols_2d_only, cols_3d_only,
+    "Robust Correlations — 2D vs 3D (cross)",
+    "correlation_split_2d_vs_3d.png"
+)
+
+
+# ============================================================
+# DOT PLOT of robust correlations
+# ============================================================
+
+if not df_significant.empty:
+    df_dot = df_significant.head(40).copy()  # top 40 strongest
+    df_dot["pair"] = df_dot["Var1"] + "  vs  " + df_dot["Var2"]
+    df_dot = df_dot.sort_values("Correlation")
+
+    n_pairs_dot = len(df_dot)
+    fig_h = max(8, 0.4 * n_pairs_dot + 1.5)
+
+    fig, ax = plt.subplots(figsize=(10, fig_h))
+
+    colors = df_dot["Correlation"].apply(lambda r: "#2171B5" if r > 0 else "#DE2D26")
+    sizes = df_dot["Abs_corr"] * 300
+
+    ax.scatter(df_dot["Correlation"], range(n_pairs_dot), s=sizes, c=colors, alpha=0.8, edgecolors="black", linewidths=0.5)
+
+    # CI bars
+    for i, (_, row) in enumerate(df_dot.iterrows()):
+        ax.plot([row["CI_lower"], row["CI_upper"]], [i, i], color="grey", lw=1, zorder=0)
+
+    ax.set_yticks(range(n_pairs_dot))
+    ax.set_yticklabels(df_dot["pair"], fontsize=10)
+    ax.set_xlabel("Correlation (r)", fontsize=13)
+    ax.set_title("Top Robust Correlations (IC 95% excludes 0, |r| >= 0.3)", fontsize=14, weight="bold", pad=12)
+    ax.axvline(0, color="black", lw=0.8, ls="--")
+    ax.grid(axis="x", alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(_os.path.join(OUTPUT_DIR, "correlation_dotplot.png"), dpi=300, bbox_inches="tight")
+    plt.close()
+else:
+    print("[WARN] Dot plot: aucune corrélation significative à afficher.")
 
