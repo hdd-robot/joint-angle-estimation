@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Test d'acquisition RealSense - RGB et Profondeur
+RealSense Acquisition Test - RGB and Depth
 
-Ce script vérifie que la caméra RealSense fonctionne correctement
-en capturant des images RGB et de profondeur.
+This script verifies that the RealSense camera is working correctly
+by capturing RGB and depth images.
 
 Usage:
     python test_realsense.py
@@ -12,7 +12,7 @@ Usage:
 import sys
 import numpy as np
 
-# Configuration du logging
+# Logging configuration
 import logging
 logging.basicConfig(
     level=logging.INFO,
@@ -23,10 +23,10 @@ logger = logging.getLogger("test_realsense")
 
 
 def test_realsense():
-    """Test de la caméra RealSense."""
+    """Test the RealSense camera."""
 
     logger.info("=" * 50)
-    logger.info("  Test Caméra Intel RealSense")
+    logger.info("  Intel RealSense Camera Test")
     logger.info("=" * 50)
 
     # Test import pyrealsense2
@@ -35,8 +35,8 @@ def test_realsense():
         import pyrealsense2 as rs
         logger.info(f"      pyrealsense2 version: {rs.__version__}")
     except ImportError as e:
-        logger.error(f"      Erreur: {e}")
-        logger.error("      Installez avec: pip install pyrealsense2")
+        logger.error(f"      Error: {e}")
+        logger.error("      Install with: pip install pyrealsense2")
         return False
 
     # Test import OpenCV
@@ -45,43 +45,43 @@ def test_realsense():
         import cv2
         logger.info(f"      OpenCV version: {cv2.__version__}")
     except ImportError as e:
-        logger.error(f"      Erreur: {e}")
+        logger.error(f"      Error: {e}")
         return False
 
-    # Détecter les caméras connectées
-    logger.info("[3/5] Détection des caméras...")
+    # Detect connected cameras
+    logger.info("[3/5] Detecting cameras...")
     try:
         ctx = rs.context()
         devices = ctx.query_devices()
 
         if len(devices) == 0:
-            logger.warning("      Aucune caméra RealSense détectée!")
-            logger.warning("      Vérifiez que la caméra est branchée.")
+            logger.warning("      No RealSense camera detected!")
+            logger.warning("      Check that the camera is connected.")
             return False
 
         for i, dev in enumerate(devices):
-            logger.info(f"      Caméra {i+1}: {dev.get_info(rs.camera_info.name)}")
-            logger.info(f"         Série: {dev.get_info(rs.camera_info.serial_number)}")
+            logger.info(f"      Camera {i+1}: {dev.get_info(rs.camera_info.name)}")
+            logger.info(f"         Serial: {dev.get_info(rs.camera_info.serial_number)}")
             logger.info(f"         Firmware: {dev.get_info(rs.camera_info.firmware_version)}")
     except Exception as e:
-        logger.error(f"      Erreur détection: {e}")
+        logger.error(f"      Detection error: {e}")
         return False
 
-    # Configuration et démarrage du pipeline
-    logger.info("[4/5] Configuration du pipeline...")
+    # Configure and start the pipeline
+    logger.info("[4/5] Configuring pipeline...")
     try:
         pipeline = rs.pipeline()
         config = rs.config()
 
-        # Activer les flux RGB et Depth
+        # Enable RGB and Depth streams
         config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
         config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
 
-        # Démarrer le pipeline
+        # Start the pipeline
         profile = pipeline.start(config)
-        logger.info("      Pipeline démarré")
+        logger.info("      Pipeline started")
 
-        # Obtenir les intrinsèques
+        # Get intrinsics
         depth_sensor = profile.get_device().first_depth_sensor()
         depth_scale = depth_sensor.get_depth_scale()
         logger.info(f"      Depth scale: {depth_scale:.6f} m/unit")
@@ -96,11 +96,11 @@ def test_realsense():
         logger.info(f"      Depth: {depth_intrinsics.width}x{depth_intrinsics.height}")
 
     except Exception as e:
-        logger.error(f"      Erreur configuration: {e}")
+        logger.error(f"      Configuration error: {e}")
         return False
 
-    # Test de capture
-    logger.info("[5/5] Test de capture (10 frames)...")
+    # Capture test
+    logger.info("[5/5] Capture test (10 frames)...")
     try:
         align = rs.align(rs.stream.color)
         colorizer = rs.colorizer()
@@ -109,7 +109,7 @@ def test_realsense():
         depth_values = []
 
         for i in range(10):
-            # Attendre les frames
+            # Wait for frames
             frames = pipeline.wait_for_frames()
             aligned_frames = align.process(frames)
 
@@ -117,14 +117,14 @@ def test_realsense():
             depth_frame = aligned_frames.get_depth_frame()
 
             if not color_frame or not depth_frame:
-                logger.warning(f"      Frame {i+1}: Frames manquantes")
+                logger.warning(f"      Frame {i+1}: Missing frames")
                 continue
 
-            # Convertir en numpy
+            # Convert to numpy
             color_image = np.asanyarray(color_frame.get_data())
             depth_image = np.asanyarray(depth_frame.get_data())
 
-            # Statistiques de profondeur
+            # Depth statistics
             depth_m = depth_image * depth_scale
             valid_depth = depth_m[depth_m > 0]
 
@@ -134,25 +134,25 @@ def test_realsense():
 
             frames_captured += 1
 
-        logger.info(f"      {frames_captured}/10 frames capturées")
+        logger.info(f"      {frames_captured}/10 frames captured")
 
         if depth_values:
-            logger.info(f"      Profondeur moyenne: {np.mean(depth_values):.3f} m")
-            logger.info(f"      Plage: {np.min(depth_values):.3f} - {np.max(depth_values):.3f} m")
+            logger.info(f"      Mean depth: {np.mean(depth_values):.3f} m")
+            logger.info(f"      Range: {np.min(depth_values):.3f} - {np.max(depth_values):.3f} m")
 
     except Exception as e:
-        logger.error(f"      Erreur capture: {e}")
+        logger.error(f"      Capture error: {e}")
         pipeline.stop()
         return False
 
-    # Arrêter le pipeline
+    # Stop the pipeline
     pipeline.stop()
     logger.info("=" * 50)
-    logger.info("  Test réussi - Caméra RealSense fonctionnelle")
+    logger.info("  Test successful - RealSense camera functional")
     logger.info("=" * 50)
 
-    # Proposer un affichage live
-    response = input("Voulez-vous afficher un aperçu live? (o/n): ")
+    # Offer live preview
+    response = input("Do you want to display a live preview? (y/n): ")
 
     if response.lower() in ['o', 'oui', 'y', 'yes']:
         show_live_preview()
@@ -161,11 +161,11 @@ def test_realsense():
 
 
 def show_live_preview():
-    """Affiche un aperçu live RGB + Depth."""
+    """Display a live RGB + Depth preview."""
     import pyrealsense2 as rs
     import cv2
 
-    logger.info("Aperçu live - Appuyez sur 'q' pour quitter")
+    logger.info("Live preview - Press 'q' to quit")
 
     pipeline = rs.pipeline()
     config = rs.config()
@@ -191,7 +191,7 @@ def show_live_preview():
             color_image = np.asanyarray(color_frame.get_data())
             depth_colorized = np.asanyarray(colorizer.colorize(depth_frame).get_data())
 
-            # Profondeur au centre
+            # Center depth
             depth_sensor = pipeline.get_active_profile().get_device().first_depth_sensor()
             depth_scale = depth_sensor.get_depth_scale()
             depth_data = np.asanyarray(depth_frame.get_data())
@@ -199,7 +199,7 @@ def show_live_preview():
             h, w = depth_data.shape
             center_depth = depth_data[h//2, w//2] * depth_scale
 
-            # Afficher la profondeur au centre sur l'image RGB
+            # Display center depth on RGB image
             cv2.circle(color_image, (w//2, h//2), 5, (0, 255, 0), -1)
             cv2.putText(
                 color_image,
@@ -211,7 +211,7 @@ def show_live_preview():
                 2
             )
 
-            # Combiner les images côte à côte
+            # Combine images side by side
             combined = np.hstack((color_image, depth_colorized))
 
             cv2.imshow("RealSense - RGB | Depth (colorized)", combined)
@@ -225,15 +225,15 @@ def show_live_preview():
 
 
 def test_3d_point():
-    """Test de déprojection 2D -> 3D."""
+    """Test 2D -> 3D deprojection."""
     import pyrealsense2 as rs
     import cv2
 
-    logger.info("Test de déprojection 2D -> 3D")
-    logger.info("Cliquez sur l'image pour obtenir les coordonnées 3D")
-    logger.info("Appuyez sur 'q' pour quitter")
+    logger.info("2D -> 3D deprojection test")
+    logger.info("Click on the image to get 3D coordinates")
+    logger.info("Press 'q' to quit")
 
-    # Variables pour le callback
+    # Variables for the callback
     click_point = [None]
     point_3d = [None]
 
@@ -267,7 +267,7 @@ def test_3d_point():
 
             color_image = np.asanyarray(color_frame.get_data())
 
-            # Si un point a été cliqué
+            # If a point was clicked
             if click_point[0] is not None:
                 x, y = click_point[0]
                 depth = depth_frame.get_distance(x, y)
@@ -278,12 +278,12 @@ def test_3d_point():
                     )
                     logger.info(f"Pixel ({x}, {y}) -> 3D: X={point_3d[0][0]:.3f}m, Y={point_3d[0][1]:.3f}m, Z={point_3d[0][2]:.3f}m")
                 else:
-                    logger.warning(f"Pixel ({x}, {y}) -> Pas de profondeur valide")
+                    logger.warning(f"Pixel ({x}, {y}) -> No valid depth")
                     point_3d[0] = None
 
                 click_point[0] = None
 
-            # Afficher le dernier point 3D
+            # Display last 3D point
             if point_3d[0] is not None:
                 cv2.putText(
                     color_image,
@@ -297,7 +297,7 @@ def test_3d_point():
 
             cv2.putText(
                 color_image,
-                "Cliquez pour mesurer - 'q' pour quitter",
+                "Click to measure - 'q' to quit",
                 (10, 460),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.5,
@@ -319,7 +319,7 @@ if __name__ == "__main__":
     success = test_realsense()
 
     if success:
-        response = input("Voulez-vous tester la déprojection 3D? (o/n): ")
+        response = input("Do you want to test 3D deprojection? (y/n): ")
         if response.lower() in ['o', 'oui', 'y', 'yes']:
             test_3d_point()
 

@@ -9,17 +9,17 @@ import numpy as np
 from typing import Dict, List
 
 # =============================================================================
-# Neck (Cou) calibration data
+# Neck calibration data
 # =============================================================================
 
-# Angles alpha du cou - rotation autour de l'axe principal
-ALPHA_COU_CALI = [
+# Neck alpha angles - rotation around the main axis
+ALPHA_NECK_CALI = [
     180.0, 180.0, 180.0, 180.0, 180.0, 180.0, 180.0,
     180.0, 180.0, 180.0, 180.0, 180.0, 180.0, 180.0
 ]
 
-# Angles beta du cou - flexion/extension
-BETA_COU_CALI = [
+# Neck beta angles - flexion/extension
+BETA_NECK_CALI = [
     4.508621709363438, 3.3930767171568235, 2.6814812643374673,
     4.456043124150283, 4.229149735226317, 3.5163121314974686,
     3.491473303239572, -8.161519008450918, 2.934576258863965,
@@ -27,24 +27,24 @@ BETA_COU_CALI = [
     4.072840527185665, 2.757050167264582
 ]
 
-# Angles gamma du cou - rotation latérale
-GAMMA_COU_CALI = [
+# Neck gamma angles - lateral rotation
+GAMMA_NECK_CALI = [
     0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
     0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 ]
 
 # =============================================================================
-# Torso (Buste) calibration data
+# Torso calibration data
 # =============================================================================
 
-# Angles alpha du buste - inclinaison avant/arrière
-ALPHA_BUSTE_CALI = [
+# Torso alpha angles - forward/backward inclination
+ALPHA_TORSO_CALI = [
     90.0, 90.0, 90.0, 90.0, 90.0, 90.0, 90.0,
     90.0, 90.0, 90.0, 90.0, 90.0, 90.0, 90.0
 ]
 
-# Angles beta du buste - rotation latérale
-BETA_BUSTE_CALI = [
+# Torso beta angles - lateral rotation
+BETA_TORSO_CALI = [
     2.846859891358757, 2.8808991309186203, 2.725109530518876,
     2.9526196305301218, 3.090760529430995, 2.8921685892574343,
     3.1738402885060792, 2.8438847867157757, 2.88019828603389,
@@ -52,8 +52,8 @@ BETA_BUSTE_CALI = [
     3.1038146758322425, 2.645724772250394
 ]
 
-# Angles gamma du buste - torsion
-GAMMA_BUSTE_CALI = [
+# Torso gamma angles - torsion
+GAMMA_TORSO_CALI = [
     2.8468598913587577, 2.88089913091862, 2.7251095305188757,
     2.9526196305301213, 3.090760529430995, 2.8921685892574334,
     3.17384028850608, 2.8438847867157757, 2.88019828603389,
@@ -62,17 +62,17 @@ GAMMA_BUSTE_CALI = [
 ]
 
 # =============================================================================
-# Right shoulder (Épaule droite) calibration data
+# Right shoulder calibration data
 # =============================================================================
 
-# Angles alpha de l'épaule droite
-ALPHA_EPAULE_CALI = [
+# Right shoulder alpha angles
+ALPHA_SHOULDER_CALI = [
     0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
     0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 ]
 
-# Angles beta de l'épaule droite - flexion
-BETA_EPAULE_CALI = [
+# Right shoulder beta angles - flexion
+BETA_SHOULDER_CALI = [
     10.998188079117796, 9.475642345191273, 9.625618585559465,
     8.526897770250807, 8.981957410601247, 8.48291238365517,
     10.202254827624845, 10.658278696151012, 11.092725181516155,
@@ -80,14 +80,14 @@ BETA_EPAULE_CALI = [
     8.676933256032067, 8.512812686436547
 ]
 
-# Angles gamma de l'épaule droite
-GAMMA_EPAULE_CALI = [
+# Right shoulder gamma angles
+GAMMA_SHOULDER_CALI = [
     0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
     0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 ]
 
-# Élévation de l'épaule droite
-ELEVATION_EPAULE_D_CALI = [
+# Right shoulder elevation
+ELEVATION_SHOULDER_R_CALI = [
     93.58379161558777, 95.0252697491975, 94.83105701621447,
     94.62498497839249, 94.02168920696008, 95.39609968738289,
     93.11199382672633, 87.82792407380136, 93.38634818661961,
@@ -96,10 +96,10 @@ ELEVATION_EPAULE_D_CALI = [
 ]
 
 # =============================================================================
-# Right elbow (Coude droit) calibration data
+# Right elbow calibration data
 # =============================================================================
 
-ANGLES_COUDE_CALI = [
+ANGLES_ELBOW_CALI = [
     167.73217163197967, 171.6137828982442, 171.32689856354887,
     173.43265398522735, 172.19747661357246, 173.03735452940197,
     169.45590113837332, 168.17705391244837, 167.09029672453505,
@@ -108,10 +108,10 @@ ANGLES_COUDE_CALI = [
 ]
 
 # =============================================================================
-# Right knee (Genou droit) calibration data
+# Right knee calibration data
 # =============================================================================
 
-ANGLES_GENOU_CALI = [
+ANGLES_KNEE_CALI = [
     177.62803692855246, 177.67513469953343, 177.7248403970671,
     178.48560859398125, 178.07966161918165, 178.32789838709408,
     178.18831337841982, 177.54387402790337, 178.15135206656046,
@@ -120,38 +120,38 @@ ANGLES_GENOU_CALI = [
 ]
 
 # =============================================================================
-# Left shoulder (Épaule gauche) calibration data
+# Left shoulder calibration data
 # =============================================================================
 
-ALPHA_EPAULE_CALI_G = [
+ALPHA_SHOULDER_L_CALI = [
     21.199278899198077, 24.79397906524404, 20.42657967863544,
     19.706006771245857, 21.07757135507793, 20.446157116198314,
     21.456843997711534, 21.159700465089998
 ]
 
-BETA_EPAULE_CALI_G = [
+BETA_SHOULDER_L_CALI = [
     -15.366265277178563, -15.724823761402192, -15.00120307192697,
     -14.404190560942007, -17.710943163697944, -14.972029451433269,
     -14.93924119967565, -14.96892383268446
 ]
 
-GAMMA_EPAULE_CALI_G = [
+GAMMA_SHOULDER_L_CALI = [
     174.18730138449277, 173.37921773997786, 174.53955618199305,
     174.72961384093688, 173.80656067193235, 174.5131787641376,
     174.216069228456, 174.33040322157063
 ]
 
-ELEVATION_EPAULE_CALI_G = [
+ELEVATION_SHOULDER_L_CALI = [
     89.59152639780024, 88.14577286179517, 89.32086021928497,
     90.34092638432426, 89.23336772463217, 89.62460079227684,
     89.82393506890116, 89.71327320150371
 ]
 
 # =============================================================================
-# Left elbow (Coude gauche) calibration data
+# Left elbow calibration data
 # =============================================================================
 
-ANGLES_COUDE_CALI_G = [
+ANGLES_ELBOW_L_CALI = [
     164.10463514107644, 165.4562573558675, 162.26132407222337,
     165.47384940355752, 165.54097453142907, 167.65229393191018,
     162.39571362893295, 164.24626908595351, 164.10357375546872,
@@ -163,7 +163,7 @@ ANGLES_COUDE_CALI_G = [
 # Left knee (Genou gauche) calibration data
 # =============================================================================
 
-ANGLES_GENOU_G_CALI = [
+ANGLES_KNEE_L_CALI = [
     176.9519524466862, 177.87676391083656, 178.45578463345163,
     177.5225892658498, 176.46403663933225, 177.15476372074497,
     176.49900033114434, 174.84029381751006, 177.09711256525384,
@@ -172,7 +172,7 @@ ANGLES_GENOU_G_CALI = [
 ]
 
 # Elevation de l'épaule gauche (ancienne)
-ELEVATION_EPAULE_G_CALI = [
+ELEVATION_SHOULDER_L_OLD_CALI = [
     87.88522213339326, 87.42421795645876, 86.27017673447027,
     87.98187772414201, 87.80053398096014, 87.87879636317786,
     87.76955429263893, 88.07306072189229, 87.92783483368353,
@@ -181,7 +181,7 @@ ELEVATION_EPAULE_G_CALI = [
 ]
 
 
-def moyenne_sans_zero(liste: List[float], skip_n: int = 1) -> float:
+def mean_without_zeros(liste: List[float], skip_n: int = 1) -> float:
     """
     Calculate mean excluding NaN values and zeros.
 
@@ -192,11 +192,11 @@ def moyenne_sans_zero(liste: List[float], skip_n: int = 1) -> float:
     Returns:
         Mean value, or 0.0 if all values are filtered out
     """
-    liste_filtrée = liste[skip_n:]
-    valeurs_filtrees = [val for val in liste_filtrée if val != 0.0 and not np.isnan(val)]
+    filtered_list = liste[skip_n:]
+    filtered_values = [val for val in filtered_list if val != 0.0 and not np.isnan(val)]
 
-    if valeurs_filtrees:
-        return float(np.mean(valeurs_filtrees))
+    if filtered_values:
+        return float(np.mean(filtered_values))
     return 0.0
 
 
@@ -208,39 +208,39 @@ def get_calibration_offsets() -> Dict[str, Dict[str, float]]:
         Dictionary containing offset values for each body segment
     """
     offsets = {
-        "cou": {
-            "alpha": moyenne_sans_zero(ALPHA_COU_CALI),
-            "beta": moyenne_sans_zero(BETA_COU_CALI),
-            "gamma": moyenne_sans_zero(GAMMA_COU_CALI),
+        "neck": {
+            "alpha": mean_without_zeros(ALPHA_NECK_CALI),
+            "beta": mean_without_zeros(BETA_NECK_CALI),
+            "gamma": mean_without_zeros(GAMMA_NECK_CALI),
         },
-        "buste": {
-            "alpha": moyenne_sans_zero(ALPHA_BUSTE_CALI),
-            "beta": moyenne_sans_zero(BETA_BUSTE_CALI),
-            "gamma": moyenne_sans_zero(GAMMA_BUSTE_CALI),
+        "torso": {
+            "alpha": mean_without_zeros(ALPHA_TORSO_CALI),
+            "beta": mean_without_zeros(BETA_TORSO_CALI),
+            "gamma": mean_without_zeros(GAMMA_TORSO_CALI),
         },
-        "epaule_droite": {
-            "alpha": moyenne_sans_zero(ALPHA_EPAULE_CALI),
-            "beta": moyenne_sans_zero(BETA_EPAULE_CALI),
-            "gamma": moyenne_sans_zero(GAMMA_EPAULE_CALI),
-            "elevation": moyenne_sans_zero(ELEVATION_EPAULE_D_CALI),
+        "right_shoulder": {
+            "alpha": mean_without_zeros(ALPHA_SHOULDER_CALI),
+            "beta": mean_without_zeros(BETA_SHOULDER_CALI),
+            "gamma": mean_without_zeros(GAMMA_SHOULDER_CALI),
+            "elevation": mean_without_zeros(ELEVATION_SHOULDER_R_CALI),
         },
-        "coude_droit": {
-            "angle": moyenne_sans_zero(ANGLES_COUDE_CALI),
+        "right_elbow": {
+            "angle": mean_without_zeros(ANGLES_ELBOW_CALI),
         },
-        "genou_droit": {
-            "angle": moyenne_sans_zero(ANGLES_GENOU_CALI),
+        "right_knee": {
+            "angle": mean_without_zeros(ANGLES_KNEE_CALI),
         },
-        "epaule_gauche": {
-            "alpha": moyenne_sans_zero(ALPHA_EPAULE_CALI_G),
-            "beta": moyenne_sans_zero(BETA_EPAULE_CALI_G),
-            "gamma": moyenne_sans_zero(GAMMA_EPAULE_CALI_G),
-            "elevation": moyenne_sans_zero(ELEVATION_EPAULE_CALI_G),
+        "left_shoulder": {
+            "alpha": mean_without_zeros(ALPHA_SHOULDER_L_CALI),
+            "beta": mean_without_zeros(BETA_SHOULDER_L_CALI),
+            "gamma": mean_without_zeros(GAMMA_SHOULDER_L_CALI),
+            "elevation": mean_without_zeros(ELEVATION_SHOULDER_L_CALI),
         },
-        "coude_gauche": {
-            "angle": moyenne_sans_zero(ANGLES_COUDE_CALI_G),
+        "left_elbow": {
+            "angle": mean_without_zeros(ANGLES_ELBOW_L_CALI),
         },
-        "genou_gauche": {
-            "angle": moyenne_sans_zero(ANGLES_GENOU_G_CALI),
+        "left_knee": {
+            "angle": mean_without_zeros(ANGLES_KNEE_L_CALI),
         },
     }
     return offsets

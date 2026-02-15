@@ -5,11 +5,11 @@ metadata:
   frames_collected: 76
   mode: offline
 offsets:
-  cou: 167.10302871548916
-  coude_droit: 162.5371095920442
-  coude_gauche: 161.58741589741575
-  epaule_droite: 33.34445180602964
-  epaule_gauche: 41.01863451025744
-  genou_droit: 163.77024247193305
-  genou_gauche: 168.32362382563167
-  hanche: 92.22099645505635
+  neck: 167.10302871548916
+  right_elbow: 162.5371095920442
+  left_elbow: 161.58741589741575
+  right_shoulder: 33.34445180602964
+  left_shoulder: 41.01863451025744
+  right_knee: 163.77024247193305
+  left_knee: 168.32362382563167
+  hip: 92.22099645505635

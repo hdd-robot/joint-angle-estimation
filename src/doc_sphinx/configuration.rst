@@ -59,7 +59,7 @@ Configuration de l'installation OpenPose locale.
 .. code-block:: yaml
 
    openpose:
-     path: "/home/hdd/openpose"   # Chemin vers l'installation OpenPose
+     path: "/home/dwayne/openpose"   # Chemin vers l'installation OpenPose
 
 .. warning::
    Le chemin doit pointer vers le répertoire racine d'OpenPose contenant

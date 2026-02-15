@@ -10,8 +10,9 @@ import os
 # Paths (modifiable via CLI or environment variables)
 # =============================================================================
 
-OPENPOSE_PATH = os.environ.get("REBA_OPENPOSE_PATH", "/home/hdd/openpose")
-OUTPUT_DIR = os.environ.get("REBA_OUTPUT_DIR", os.path.expanduser("~/openpose_output"))
+OPENPOSE_PATH = os.path.expanduser(os.environ.get("REBA_OPENPOSE_PATH", "~/openpose"))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+OUTPUT_DIR = os.environ.get("REBA_OUTPUT_DIR", os.path.join(PROJECT_ROOT, "data_output"))
 
 # =============================================================================
 # OpenPose execution mode
@@ -114,35 +115,35 @@ NEEDED_KEYPOINTS = [
 # =============================================================================
 
 RISK_LABELS_FR = {
-    1: "sans risque",
-    2: "risque faible",
-    3: "risque faible",
-    4: "risque moyen",
-    5: "risque moyen",
-    6: "risque moyen",
-    7: "risque élevé",
-    8: "risque élevé",
-    9: "risque élevé",
-    10: "risque élevé",
-    11: "très élevé",
-    12: "très élevé",
+    1: "negligible risk",
+    2: "low risk",
+    3: "low risk",
+    4: "medium risk",
+    5: "medium risk",
+    6: "medium risk",
+    7: "high risk",
+    8: "high risk",
+    9: "high risk",
+    10: "high risk",
+    11: "very high risk",
+    12: "very high risk",
 }
 
 RISK_LABELS_EN = {
-    "sans risque": "negligible risk",
-    "risque faible": "low risk",
-    "risque moyen": "medium risk",
-    "risque élevé": "high risk",
-    "très élevé": "very high risk",
+    "negligible risk": "negligible risk",
+    "low risk": "low risk",
+    "medium risk": "medium risk",
+    "high risk": "high risk",
+    "very high risk": "very high risk",
 }
 
 # Couleurs ANSI pour affichage terminal
 ANSI_COLORS = {
-    "sans risque": "\033[92m",      # Vert
-    "risque faible": "\033[94m",    # Bleu
-    "risque moyen": "\033[93m",     # Jaune
-    "risque élevé": "\033[91m",     # Rouge clair
-    "très élevé": "\033[41m\033[97m",  # Fond rouge, texte blanc
+    "negligible risk": "\033[92m",      # Vert
+    "low risk": "\033[94m",    # Bleu
+    "medium risk": "\033[93m",     # Jaune
+    "high risk": "\033[91m",     # Rouge clair
+    "very high risk": "\033[41m\033[97m",  # Fond rouge, texte blanc
     "invalide": "\033[90m",         # Gris
     "reset": "\033[0m",
 }

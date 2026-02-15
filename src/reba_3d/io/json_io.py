@@ -60,20 +60,23 @@ def write_keypoints_json(
         json.dump(data, f, indent=indent)
 
 
-def read_risk_times_json(json_path: Union[str, Path]) -> Dict[str, List[Tuple[float, float]]]:
+def read_risk_times_json(json_path: Union[str, Path]) -> Dict[str, List[List[int]]]:
     """
-    Read risk time intervals from a JSON file.
+    Read risk frame intervals from a JSON file.
 
     Args:
         json_path: Path to the risk_times.json file
 
     Returns:
-        Dictionary mapping risk labels to time intervals:
+        Dictionary mapping risk labels to frame intervals:
         {
-            "negligible risk": [(start1, end1), (start2, end2), ...],
+            "negligible risk": [[start_frame1, end_frame1], [start_frame2, end_frame2], ...],
             "medium risk": [...],
             ...
         }
+
+        Note: Intervals are in frame numbers (int), not seconds.
+        To convert to seconds: timestamp = frame_number / video_fps
 
     Raises:
         FileNotFoundError: If the file doesn't exist
@@ -86,34 +89,37 @@ def read_risk_times_json(json_path: Union[str, Path]) -> Dict[str, List[Tuple[fl
     with open(json_path, 'r', encoding='utf-8') as f:
         data = json.load(f)
 
-    # Convert lists to tuples
+    # Keep as lists (frame intervals)
     result = {}
     for label, intervals in data.items():
-        result[label] = [(start, end) for start, end in intervals]
+        result[label] = [[int(start), int(end)] for start, end in intervals]
 
     return result
 
 
 def write_risk_times_json(
-    risk_times: Dict[str, List[Tuple[float, float]]],
+    risk_times: Dict[str, List[List[int]]],
     output_path: Union[str, Path],
     indent: int = 2
 ) -> None:
     """
-    Write risk time intervals to a JSON file.
+    Write risk frame intervals to a JSON file.
 
     Args:
-        risk_times: Dictionary mapping risk labels to time intervals
+        risk_times: Dictionary mapping risk labels to frame intervals
+                   Format: {"label": [[start_frame, end_frame], ...]}
         output_path: Path to write the JSON file
         indent: JSON indentation level (default: 2)
+
+    Note: Intervals are stored as frame numbers (int) to avoid FPS drift issues.
     """
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Convert tuples to lists for JSON serialization
+    # Ensure all values are lists of lists of integers
     data = {}
     for label, intervals in risk_times.items():
-        data[label] = [list(interval) for interval in intervals]
+        data[label] = [[int(start), int(end)] for start, end in intervals]
 
     with open(output_path, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=indent)
@@ -121,24 +127,24 @@ def write_risk_times_json(
 
 def convert_risk_times_fr_to_en(
     risk_times_fr: Dict[str, List]
-) -> Dict[str, List[Tuple[float, float]]]:
+) -> Dict[str, List[List[int]]]:
     """
     Convert French risk labels to English.
 
     Args:
         risk_times_fr: Risk times with French labels
-            Format: {"label_fr": [(window_num, start, end), ...]}
+            Format: {"label_fr": [(window_num, start_frame, end_frame), ...]}
 
     Returns:
         Risk times with English labels
-            Format: {"label_en": [(start, end), ...]}
+            Format: {"label_en": [[start_frame, end_frame], ...]}
     """
     label_map = {
-        "sans risque": "negligible risk",
-        "risque faible": "low risk",
-        "risque moyen": "medium risk",
-        "risque élevé": "high risk",
-        "très élevé": "very high risk",
+        "negligible risk": "negligible risk",
+        "low risk": "low risk",
+        "medium risk": "medium risk",
+        "high risk": "high risk",
+        "very high risk": "very high risk",
     }
 
     result = {}
@@ -149,11 +155,11 @@ def convert_risk_times_fr_to_en(
                 result[en_label] = []
             for item in intervals:
                 if len(item) == 3:
-                    # Format: (window_num, start, end)
+                    # Format: (window_num, start_frame, end_frame)
                     _, start, end = item
                 else:
-                    # Format: (start, end)
+                    # Format: (start_frame, end_frame) or [start_frame, end_frame]
                     start, end = item
-                result[en_label].append((start, end))
+                result[en_label].append([int(start), int(end)])
 
     return result

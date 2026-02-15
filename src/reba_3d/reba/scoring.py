@@ -80,10 +80,10 @@ def score_torso(alpha: Optional[float], beta: Optional[float] = None, gamma: Opt
         score = 4
     elif alpha > 20:
         score = 3
-    elif alpha > 0 or alpha < 0:
+    elif abs(alpha) > 0.1:  # Tolère ±0.1° de zone neutre
         score = 2
     else:
-        score = 1  # Neutre (alpha == 0)
+        score = 1  # Neutre
 
     # Calcul du malus
     malus = 0
@@ -129,7 +129,7 @@ def score_shoulder(
         score = 4  # >90° flexion
     elif angle > 45:
         score = 3  # 45-90° flexion
-    elif angle > 20 or angle < -20:
+    elif abs(angle) > 20:
         score = 2  # 20-45° flexion OU >20° extension
     else:
         score = 1  # -20° à 20° (neutre)
@@ -337,15 +337,15 @@ def score_to_risk_label(score: Union[int, str]) -> str:
     if score == "Invalide" or score is None:
         return "invalide"
     elif score == 1:
-        return "sans risque"
+        return "negligible risk"
     elif score <= 3:
-        return "risque faible"
+        return "low risk"
     elif score < 7:
-        return "risque moyen"
+        return "medium risk"
     elif score <= 10:
-        return "risque élevé"
+        return "high risk"
     else:
-        return "très élevé"
+        return "very high risk"
 
 
 def score_to_risk_label_en(score: Union[int, str]) -> str:
@@ -360,11 +360,11 @@ def score_to_risk_label_en(score: Union[int, str]) -> str:
     """
     label_fr = score_to_risk_label(score)
     label_map = {
-        "sans risque": "negligible risk",
-        "risque faible": "low risk",
-        "risque moyen": "medium risk",
-        "risque élevé": "high risk",
-        "très élevé": "very high risk",
+        "negligible risk": "negligible risk",
+        "low risk": "low risk",
+        "medium risk": "medium risk",
+        "high risk": "high risk",
+        "very high risk": "very high risk",
         "invalide": "invalid",
     }
     return label_map.get(label_fr, "invalid")

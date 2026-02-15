@@ -187,16 +187,16 @@ def get_table_c_score(score_a: int, score_b: int) -> int:
     return TABLE_C.get((score_a, score_b), 8)
 
 
-def calculate_reba_score(calibrated_angles: Dict[str, float]) -> REBAScore:
+def calculate_reba_score_simple(calibrated_angles: Dict[str, float]) -> REBAScore:
     """
-    Calculate REBA score from calibrated angles.
+    Calculate REBA score from calibrated angles (simple format - legacy).
 
     Args:
         calibrated_angles: Dictionary of calibrated angles:
-            - cou: neck angle
-            - epaule_droite/gauche: shoulder angle
-            - coude_droit/gauche: elbow angle
-            - genou_droit/gauche: knee angle
+            - neck: neck angle
+            - right_shoulder/gauche: shoulder angle
+            - right_elbow/gauche: elbow angle
+            - right_knee/gauche: knee angle
             - hanche: hip/trunk angle
 
     Returns:
@@ -205,20 +205,20 @@ def calculate_reba_score(calibrated_angles: Dict[str, float]) -> REBAScore:
     score = REBAScore()
 
     # Get angles with defaults
-    neck_angle = calibrated_angles.get('cou', 0)
+    neck_angle = calibrated_angles.get('neck', 0)
     trunk_angle = calibrated_angles.get('hanche', 0)  # Using hip as proxy for trunk
 
     # Use average of left/right for bilateral joints
-    shoulder_r = calibrated_angles.get('epaule_droite', 0)
-    shoulder_l = calibrated_angles.get('epaule_gauche', 0)
+    shoulder_r = calibrated_angles.get('right_shoulder', 0)
+    shoulder_l = calibrated_angles.get('left_shoulder', 0)
     shoulder_angle = max(shoulder_r, shoulder_l)  # Use worse side
 
-    elbow_r = calibrated_angles.get('coude_droit', 0)
-    elbow_l = calibrated_angles.get('coude_gauche', 0)
+    elbow_r = calibrated_angles.get('right_elbow', 0)
+    elbow_l = calibrated_angles.get('left_elbow', 0)
     elbow_angle = max(elbow_r, elbow_l)
 
-    knee_r = calibrated_angles.get('genou_droit', 0)
-    knee_l = calibrated_angles.get('genou_gauche', 0)
+    knee_r = calibrated_angles.get('right_knee', 0)
+    knee_l = calibrated_angles.get('left_knee', 0)
     knee_angle = max(knee_r, knee_l)
 
     # Calculate individual scores
@@ -233,7 +233,7 @@ def calculate_reba_score(calibrated_angles: Dict[str, float]) -> REBAScore:
     score.score_b = get_table_b_score(score.upper_arm_score, score.lower_arm_score, 1)
     score.score_c = get_table_c_score(score.score_a, score.score_b)
 
-    # Final score (could add activity score here)
+    # Final score (neckld add activity score here)
     score.final_score = score.score_c
 
     # Get risk level
@@ -242,6 +242,235 @@ def calculate_reba_score(calibrated_angles: Dict[str, float]) -> REBAScore:
     score.risk_color = risk_info[1]
 
     return score
+
+
+def calculate_reba_score_nautical(
+    calibrated_angles: Dict[str, Dict[str, float]]
+) -> REBAScore:
+    """
+    Calculate REBA score from nautical angles (nested format) with malus.
+
+    Uses full 3D nautical angles (alpha, beta, gamma) to detect rotations
+    and lateral bending, applying REBA malus scores accordingly.
+
+    Args:
+        calibrated_angles: Nested dictionary of calibrated angles:
+            {
+                "neck": {"alpha": float, "beta": float, "gamma": float},
+                "torso": {"alpha": float, "beta": float, "gamma": float},
+                "right_shoulder": {"alpha": float, "beta": float, "gamma": float, "elevation": float},
+                ...
+            }
+
+    Returns:
+        REBAScore with all component scores including malus adjustments
+    """
+    import numpy as np
+
+    score = REBAScore()
+
+    # Neck scoring with malus
+    if "neck" in calibrated_angles:
+        alpha = calibrated_angles["neck"].get("alpha", 0)
+        beta = calibrated_angles["neck"].get("beta", 0)
+        gamma = calibrated_angles["neck"].get("gamma", 0)
+
+        # Skip NaN values
+        if not (np.isnan(alpha) or np.isnan(beta) or np.isnan(gamma)):
+            # Detect 2D profile mode: if alpha and beta are 0, use gamma for flexion
+            is_2d_mode = (abs(alpha) < 0.1 and abs(beta) < 0.1)
+            flexion_angle = gamma if is_2d_mode else alpha
+
+            # Base score from flexion angle
+            if abs(flexion_angle) > 20:
+                score.neck_score = 2
+            else:
+                score.neck_score = 1
+
+            # Malus for lateral bend (beta) - only in 3D mode
+            if not is_2d_mode and 15 <= abs(beta) <= 30:
+                score.neck_score += 1
+
+            # Malus for rotation (gamma) - only in 3D mode
+            if not is_2d_mode and abs(gamma) > 25:
+                score.neck_score += 1
+
+    # Torso scoring with malus
+    if "torso" in calibrated_angles:
+        alpha = calibrated_angles["torso"].get("alpha", 0)
+        beta = calibrated_angles["torso"].get("beta", 0)
+        gamma = calibrated_angles["torso"].get("gamma", 0)
+
+        if not (np.isnan(alpha) or np.isnan(beta) or np.isnan(gamma)):
+            # Detect 2D mode: if alpha and beta are 0, use gamma for flexion
+            is_2d_mode = (abs(alpha) < 0.1 and abs(beta) < 0.1)
+            flexion_angle = gamma if is_2d_mode else alpha
+
+            # Base score from flexion angle
+            if abs(flexion_angle) > 60:
+                score.trunk_score = 4
+            elif abs(flexion_angle) > 20:
+                score.trunk_score = 3
+            elif abs(flexion_angle) > 0:
+                score.trunk_score = 2
+            else:
+                score.trunk_score = 1
+
+            # Malus for lateral bend - only in 3D mode
+            if not is_2d_mode and beta < -18:
+                score.trunk_score += 1
+
+            # Malus for rotation - only in 3D mode
+            if not is_2d_mode and -15 <= gamma < -9:
+                score.trunk_score += 1
+
+    # Shoulder scoring (use worse side)
+    shoulder_scores = []
+
+    if "right_shoulder" in calibrated_angles:
+        alpha_r = calibrated_angles["right_shoulder"].get("alpha", 0)
+        beta_r = calibrated_angles["right_shoulder"].get("beta", 0)
+        gamma_r = calibrated_angles["right_shoulder"].get("gamma", 0)
+        elevation_r = calibrated_angles["right_shoulder"].get("elevation", 0)
+
+        if not np.isnan(alpha_r):
+            # Detect 2D mode: if alpha and beta are 0, use gamma
+            is_2d_mode = (abs(alpha_r) < 0.1 and abs(beta_r) < 0.1)
+            shoulder_angle = gamma_r if is_2d_mode else alpha_r
+
+            # Base score from shoulder angle
+            if abs(shoulder_angle) > 90:
+                s = 4
+            elif abs(shoulder_angle) > 45:
+                s = 3
+            elif abs(shoulder_angle) > 20:
+                s = 2
+            else:
+                s = 1
+
+            # Malus for shoulder elevation
+            if not np.isnan(elevation_r) and elevation_r < -5:
+                s += 1
+
+            shoulder_scores.append(s)
+
+    if "left_shoulder" in calibrated_angles:
+        alpha_l = calibrated_angles["left_shoulder"].get("alpha", 0)
+        beta_l = calibrated_angles["left_shoulder"].get("beta", 0)
+        gamma_l = calibrated_angles["left_shoulder"].get("gamma", 0)
+        elevation_l = calibrated_angles["left_shoulder"].get("elevation", 0)
+
+        if not np.isnan(alpha_l):
+            # Detect 2D mode: if alpha and beta are 0, use gamma
+            is_2d_mode = (abs(alpha_l) < 0.1 and abs(beta_l) < 0.1)
+            shoulder_angle = gamma_l if is_2d_mode else alpha_l
+
+            # Base score from shoulder angle
+            if abs(shoulder_angle) > 90:
+                s = 4
+            elif abs(shoulder_angle) > 45:
+                s = 3
+            elif abs(shoulder_angle) > 20:
+                s = 2
+            else:
+                s = 1
+
+            # Malus for shoulder elevation
+            if not np.isnan(elevation_l) and elevation_l < -5:
+                s += 1
+
+            shoulder_scores.append(s)
+
+    if shoulder_scores:
+        score.upper_arm_score = max(shoulder_scores)  # Use worse side
+
+    # Elbow scoring (use worse side)
+    elbow_angles = []
+
+    if "right_elbow" in calibrated_angles:
+        angle_r = calibrated_angles["right_elbow"].get("angle", 0)
+        if not np.isnan(angle_r):
+            elbow_angles.append(angle_r)
+
+    if "left_elbow" in calibrated_angles:
+        angle_l = calibrated_angles["left_elbow"].get("angle", 0)
+        if not np.isnan(angle_l):
+            elbow_angles.append(angle_l)
+
+    if elbow_angles:
+        elbow_angle = max(elbow_angles)
+        # Score based on angle range
+        if 60 <= elbow_angle <= 100:
+            score.lower_arm_score = 1
+        else:
+            score.lower_arm_score = 2
+
+    # Knee/leg scoring (use worse side)
+    knee_angles = []
+
+    if "right_knee" in calibrated_angles:
+        angle_r = calibrated_angles["right_knee"].get("angle", 0)
+        if not np.isnan(angle_r):
+            knee_angles.append(angle_r)
+
+    if "left_knee" in calibrated_angles:
+        angle_l = calibrated_angles["left_knee"].get("angle", 0)
+        if not np.isnan(angle_l):
+            knee_angles.append(angle_l)
+
+    if knee_angles:
+        knee_angle = max(knee_angles)
+        # Assume bilateral weight bearing
+        if abs(knee_angle) <= 30:
+            score.legs_score = 1
+        elif abs(knee_angle) <= 60:
+            score.legs_score = 2
+        else:
+            score.legs_score = 3
+
+    # Calculate table scores
+    score.score_a = get_table_a_score(score.trunk_score, score.neck_score, score.legs_score)
+    score.score_b = get_table_b_score(score.upper_arm_score, score.lower_arm_score, 1)
+    score.score_c = get_table_c_score(score.score_a, score.score_b)
+
+    # Final score
+    score.final_score = score.score_c
+
+    # Get risk level
+    risk_info = RISK_LEVELS.get(score.final_score, ("high", (0, 0, 255)))
+    score.risk_level = risk_info[0]
+    score.risk_color = risk_info[1]
+
+    return score
+
+
+def calculate_reba_score(calibrated_angles) -> REBAScore:
+    """
+    Calculate REBA score from calibrated angles (auto-detect format).
+
+    Automatically detects whether the input is in simple format (Dict[str, float])
+    or nested nautical format (Dict[str, Dict[str, float]]) and calls the
+    appropriate scoring function.
+
+    Args:
+        calibrated_angles: Dictionary of calibrated angles in either format
+
+    Returns:
+        REBAScore with all component scores
+    """
+    # Detect format by checking the first value
+    if not calibrated_angles:
+        return REBAScore()
+
+    first_key = next(iter(calibrated_angles))
+    first_value = calibrated_angles[first_key]
+
+    # If first value is a dict, it's nested nautical format
+    if isinstance(first_value, dict):
+        return calculate_reba_score_nautical(calibrated_angles)
+    else:
+        # Simple flat format (legacy)
+        return calculate_reba_score_simple(calibrated_angles)
 
 
 class RealtimeREBAScorer:
