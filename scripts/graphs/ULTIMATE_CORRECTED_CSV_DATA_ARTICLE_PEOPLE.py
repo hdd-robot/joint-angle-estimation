@@ -3,13 +3,15 @@ import re
 import numpy as np
 import pandas as pd
 
+_HERE = os.path.dirname(os.path.abspath(__file__))
+
 # ======================
 # Config / constants
 # ======================
-PEOPLE_DIR = "PEOPLE"              # root folder containing ID_* subfolders
+PEOPLE_DIR = os.path.join(_HERE, "..", "PEOPLE JSON")  # root folder containing ID_* subfolders
 LOG_2D_NAME = "reba_analysis_2d.log"
 LOG_3D_NAME = "reba_analysis_3d.log"
-OUTPUT_CSV = "ULTIMATE_ALL_DATA_EXPERIMENT.csv"
+OUTPUT_CSV = os.path.join(_HERE, "ULTIMATE_ALL_DATA_EXPERIMENT.csv")
 
 # Risk label -> numeric score
 RISK_MAP = {

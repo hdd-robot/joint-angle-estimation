@@ -1,3 +1,4 @@
+import os as _os
 import pandas as pd
 from matplotlib.colors import LinearSegmentedColormap
 import matplotlib.pyplot as plt
@@ -5,10 +6,12 @@ import seaborn as sns
 import numpy as np
 import re
 
+_HERE = _os.path.dirname(_os.path.abspath(__file__))
+
 # ---------------------------
 # Load CSV
 # ---------------------------
-df = pd.read_csv("ULTIMATE_ALL_DATA_EXPERIMENT.csv")
+df = pd.read_csv(_os.path.join(_HERE, "ULTIMATE_ALL_DATA_EXPERIMENT.csv"))
 
 # Forcer les colonnes numériques (si jamais "invalid" ou texte traîne)
 for c in ["REBA_2D", "REBA_3D", "Error"]:

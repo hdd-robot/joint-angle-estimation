@@ -22,8 +22,11 @@ QTM_F1 = 1408
 # QTM_F0 = 1500
 # QTM_F1 = 1600
 
-json_path = "trial_RGBD0002.json"
-out_csv = "trial_RGBD0002_angles_sync.csv"
+import os as _os
+_HERE = _os.path.dirname(_os.path.abspath(__file__))
+
+json_path = _os.path.join(_HERE, "trial_RGBD0002.json")
+out_csv = _os.path.join(_HERE, "trial_RGBD0002_angles_sync.csv")
 
 
 
