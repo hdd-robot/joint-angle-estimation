@@ -2,6 +2,8 @@
 
 3D Ergonomic Posture Analysis System using REBA (Rapid Entire Body Assessment) methodology. Processes RGB-D video from Intel RealSense cameras with OpenPose skeleton detection to assess worker posture risk levels in occupational settings.
 
+![Software Screenshot](../img/software.png)
+
 ## Features
 
 - Process RGB-D video from Intel RealSense cameras (.bag files)

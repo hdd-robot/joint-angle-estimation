@@ -10,7 +10,7 @@ import os
 # Paths (modifiable via CLI or environment variables)
 # =============================================================================
 
-OPENPOSE_PATH = os.environ.get("REBA_OPENPOSE_PATH", "/home/dwayne/openpose")
+OPENPOSE_PATH = os.path.expanduser(os.environ.get("REBA_OPENPOSE_PATH", "~/openpose"))
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 OUTPUT_DIR = os.environ.get("REBA_OUTPUT_DIR", os.path.join(PROJECT_ROOT, "data_output"))
 

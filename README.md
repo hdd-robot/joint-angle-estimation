@@ -2,6 +2,8 @@
 
 Ergonomic posture analysis system using the REBA (Rapid Entire Body Assessment) method with 3D skeleton detection (OpenPose + Intel RealSense).
 
+![Software Screenshot](img/software.png)
+
 ## Project Structure
 
 ```

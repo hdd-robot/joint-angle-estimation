@@ -740,8 +740,8 @@ def split_heatmap(corr_mat, row_cols, col_cols, title, out_png, lower_triangle=F
     annot.values[mask] = ""
 
     n_rows, n_cols = sub.shape
-    fig_w = max(8, 0.9 * n_cols + 2)
-    fig_h = max(6, 0.9 * n_rows + 2)
+    fig_w = max(8, 0.65 * n_cols + 2)
+    fig_h = max(5, 0.5 * n_rows + 2)
 
     plt.figure(figsize=(fig_w, fig_h))
     sns.heatmap(
@@ -755,7 +755,7 @@ def split_heatmap(corr_mat, row_cols, col_cols, title, out_png, lower_triangle=F
         annot_kws={"size": 12, "weight": "bold"},
         linewidths=1,
         linecolor="white",
-        square=True,
+        square=False,
         cbar_kws={"label": "r", "shrink": 0.8},
     )
     plt.title(title, fontsize=16, weight="bold", pad=12)
@@ -794,6 +794,31 @@ split_heatmap(
     "correlation_split_2d_vs_3d.png"
 )
 
+
+# ============================================================
+# Concatenated correlation split matrices (1 row x 3 columns)
+# ============================================================
+_corr_split_panels = [
+    "correlation_split_2d.png",
+    "correlation_split_3d.png",
+    "correlation_split_2d_vs_3d.png",
+]
+_corr_split_paths = [_os.path.join(OUTPUT_DIR, f) for f in _corr_split_panels]
+
+if all(_os.path.exists(p) for p in _corr_split_paths):
+    imgs = [_PILImage.open(p) for p in _corr_split_paths]
+    min_h = min(im.height for im in imgs)
+    imgs = [im.resize((int(im.width * min_h / im.height), min_h), _PILImage.LANCZOS) for im in imgs]
+    total_w = sum(im.width for im in imgs)
+    concat = _PILImage.new("RGB", (total_w, min_h), "white")
+    x_offset = 0
+    for im in imgs:
+        concat.paste(im, (x_offset, 0))
+        x_offset += im.width
+    concat.save(_os.path.join(OUTPUT_DIR, "correlation_splits_all.png"), dpi=(300, 300))
+    print(f"[OK] Concatenated correlation splits -> correlation_splits_all.png ({total_w}x{min_h})")
+else:
+    print("[WARN] Some correlation split images missing, skipping concatenation.")
 
 # ============================================================
 # DOT PLOT of robust correlations

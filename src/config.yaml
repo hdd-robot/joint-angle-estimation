@@ -61,7 +61,7 @@ paths:
 # -----------------------------------------------------------------------------
 openpose:
   # Chemin vers l'installation OpenPose
-  path: "/home/dwayne/openpose"
+  path: "~/openpose"
 
 # -----------------------------------------------------------------------------
 # Enregistrement vidéo
