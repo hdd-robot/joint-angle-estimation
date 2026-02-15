@@ -9,9 +9,13 @@ import numpy as np
 from typing import Dict, Optional, Tuple, List
 
 from reba_3d.core.geometry import (
-    orthonormaliser_repere,
-    extraire_angles_nautiques,
+    orthonormalize_frame,
+    extract_nautical_angles,
+    extract_nautical_angles_2d,
+    extract_nautical_angles_2d_enhanced,
+    extract_shoulder_angles_dotproduct,
     calculate_angle_between_vectors,
+    detect_view_orientation,
 )
 
 
@@ -19,10 +23,10 @@ def compute_neck_angles(
     positions: Dict[str, np.ndarray]
 ) -> Optional[Tuple[float, float, float]]:
     """
-    Compute neck angles (alpha, beta, gamma) relative to the torso.
+    Compute neck angles (alpha, beta, gamma) relative to the torso using 3D nautical angles.
 
     Constructs reference frames for head and torso, then calculates
-    the nautical angles between them.
+    the full 3D nautical angles between them.
 
     Args:
         positions: Dictionary of smoothed keypoint positions
@@ -37,7 +41,7 @@ def compute_neck_angles(
     # Repère Tête
     Z_t_raw = positions["Neck"] - positions["Nose"]
     X_t_raw = positions["REye"] - positions["LEye"]
-    rep_t = orthonormaliser_repere(Z_t_raw, X_t_raw)
+    rep_t = orthonormalize_frame(Z_t_raw, X_t_raw)
 
     if rep_t is None:
         return None
@@ -47,15 +51,68 @@ def compute_neck_angles(
     # Repère Buste
     Z_b_raw = positions["Neck"] - positions["MidHip"]
     X_b_raw = positions["RShoulder"] - positions["LShoulder"]
-    rep_b = orthonormaliser_repere(Z_b_raw, X_b_raw)
+    rep_b = orthonormalize_frame(Z_b_raw, X_b_raw)
 
     if rep_b is None:
         return None
 
     X_b, Y_b, Z_b = rep_b
 
-    # Angles nautiques du cou
-    angles = extraire_angles_nautiques(X_t, Y_t, Z_t, X_b, Y_b, Z_b)
+    # Angles nautiques 3D du cou
+    angles = extract_nautical_angles(X_t, Y_t, Z_t, X_b, Y_b, Z_b)
+    if angles is None:
+        return None
+
+    alpha, beta, gamma = angles
+    return float(abs(alpha)), float(beta), float(gamma)
+
+
+def compute_neck_angles_2d(
+    positions: Dict[str, np.ndarray],
+    neutral_shoulder_width: Optional[float] = None,
+) -> Optional[Tuple[float, float, float]]:
+    """
+    Compute neck angles using enhanced 2D planar projection with multi-plane fusion.
+
+    Constructs reference frames for head and torso, then calculates
+    angles using continuous blending between frontal and profile planes.
+
+    Args:
+        positions: Dictionary of smoothed keypoint positions
+        neutral_shoulder_width: Shoulder width from neutral pose for rotation estimation
+
+    Returns:
+        Tuple (alpha, beta, gamma) in degrees, or None if calculation fails
+    """
+    required = ["Neck", "Nose", "REye", "LEye", "MidHip", "RShoulder", "LShoulder"]
+    if any(np.isnan(positions.get(kp, [np.nan])).any() for kp in required):
+        return None
+
+    # Repère Tête
+    Z_t_raw = positions["Neck"] - positions["Nose"]
+    X_t_raw = positions["REye"] - positions["LEye"]
+    rep_t = orthonormalize_frame(Z_t_raw, X_t_raw)
+
+    if rep_t is None:
+        return None
+
+    X_t, Y_t, Z_t = rep_t
+
+    # Repère Buste
+    Z_b_raw = positions["Neck"] - positions["MidHip"]
+    X_b_raw = positions["RShoulder"] - positions["LShoulder"]
+    rep_b = orthonormalize_frame(Z_b_raw, X_b_raw)
+
+    if rep_b is None:
+        return None
+
+    X_b, Y_b, Z_b = rep_b
+
+    # Enhanced 2D angles with multi-plane fusion
+    angles = extract_nautical_angles_2d_enhanced(
+        X_t, X_b, positions,
+        neutral_shoulder_width=neutral_shoulder_width,
+    )
     if angles is None:
         return None
 
@@ -67,7 +124,7 @@ def compute_torso_angles(
     positions: Dict[str, np.ndarray]
 ) -> Optional[Tuple[float, float, float]]:
     """
-    Compute torso angles (alpha, beta, gamma) relative to global frame.
+    Compute torso angles (alpha, beta, gamma) relative to global frame using 3D nautical angles.
 
     Args:
         positions: Dictionary of smoothed keypoint positions
@@ -82,7 +139,7 @@ def compute_torso_angles(
     # Repère Buste
     Z_b_raw = positions["Neck"] - positions["MidHip"]
     X_b_raw = positions["RShoulder"] - positions["LShoulder"]
-    rep_b = orthonormaliser_repere(Z_b_raw, X_b_raw)
+    rep_b = orthonormalize_frame(Z_b_raw, X_b_raw)
 
     if rep_b is None:
         return None
@@ -94,8 +151,55 @@ def compute_torso_angles(
     Y_g = np.array([0, -1, 0], dtype=float)
     Z_g = np.array([0, 0, 1], dtype=float)
 
-    # Angles nautiques du buste par rapport au global
-    angles = extraire_angles_nautiques(X_b, Y_b, Z_b, X_g, Y_g, Z_g)
+    # Angles nautiques 3D du buste par rapport au global
+    angles = extract_nautical_angles(X_b, Y_b, Z_b, X_g, Y_g, Z_g)
+    if angles is None:
+        return None
+
+    return angles
+
+
+def compute_torso_angles_2d(
+    positions: Dict[str, np.ndarray],
+    neutral_shoulder_width: Optional[float] = None,
+) -> Optional[Tuple[float, float, float]]:
+    """
+    Compute torso angles using enhanced 2D planar projection with multi-plane fusion.
+
+    Improvements over basic 2D:
+    - Multi-plane fusion: blends frontal and profile angles continuously
+    - Lateral bend (beta) estimated from shoulder vertical asymmetry
+    - Axial rotation estimated from projected shoulder width vs neutral
+
+    Args:
+        positions: Dictionary of smoothed keypoint positions
+        neutral_shoulder_width: Shoulder width from neutral pose for rotation estimation
+
+    Returns:
+        Tuple (alpha, beta, gamma) in degrees, or None if calculation fails
+    """
+    required = ["Neck", "MidHip", "RShoulder", "LShoulder"]
+    if any(np.isnan(positions.get(kp, [np.nan])).any() for kp in required):
+        return None
+
+    # Repère Buste
+    Z_b_raw = positions["Neck"] - positions["MidHip"]
+    X_b_raw = positions["RShoulder"] - positions["LShoulder"]
+    rep_b = orthonormalize_frame(Z_b_raw, X_b_raw)
+
+    if rep_b is None:
+        return None
+
+    X_b, Y_b, Z_b = rep_b
+
+    # Repère global (vue frontale XY)
+    X_g = np.array([-1, 0, 0], dtype=float)
+
+    # Enhanced 2D angles with multi-plane fusion + beta + rotation
+    angles = extract_nautical_angles_2d_enhanced(
+        X_b, X_g, positions,
+        neutral_shoulder_width=neutral_shoulder_width,
+    )
     if angles is None:
         return None
 
@@ -106,7 +210,7 @@ def compute_shoulder_angles_right(
     positions: Dict[str, np.ndarray]
 ) -> Optional[Tuple[float, float, float]]:
     """
-    Compute right shoulder angles relative to torso.
+    Compute right shoulder angles relative to torso using 3D nautical angles.
 
     Args:
         positions: Dictionary of smoothed keypoint positions
@@ -121,32 +225,76 @@ def compute_shoulder_angles_right(
     # Repère Buste
     Z_b_raw = positions["Neck"] - positions["MidHip"]
     X_b_raw = positions["RShoulder"] - positions["LShoulder"]
-    rep_b = orthonormaliser_repere(Z_b_raw, X_b_raw)
+    rep_b = orthonormalize_frame(Z_b_raw, X_b_raw)
 
     if rep_b is None:
         return None
 
     X_b, Y_b, Z_b = rep_b
 
-    # Repère Épaule Droite
+    # Vecteur bras (pas besoin de repère complet — produits scalaires uniquement)
     Z_ed_raw = positions["RShoulder"] - positions["RElbow"]
-    X_ed_raw = positions["RShoulder"] - positions["LShoulder"]
-    rep_ed = orthonormaliser_repere(Z_ed_raw, X_ed_raw)
+    return extract_shoulder_angles_dotproduct(Z_ed_raw, X_b, Y_b, Z_b)
 
-    if rep_ed is None:
+
+def _compute_shoulder_angles_2d(
+    positions: Dict[str, np.ndarray],
+    side: str,
+    neutral_shoulder_width: Optional[float] = None,
+) -> Optional[Tuple[float, float, float]]:
+    """
+    Compute shoulder angles using enhanced 2D planar projection with multi-plane fusion.
+
+    Measures the angle between the upper arm direction (Shoulder→Elbow) and the
+    torso axis (MidHip→Neck) with continuous blending between frontal and profile planes.
+
+    Args:
+        positions: Dictionary of smoothed keypoint positions
+        side: 'R' for right shoulder, 'L' for left shoulder
+        neutral_shoulder_width: Shoulder width from neutral pose for rotation estimation
+
+    Returns:
+        Tuple (alpha, beta, gamma) in degrees, or None if calculation fails
+    """
+    shoulder_key = f"{side}Shoulder"
+    elbow_key = f"{side}Elbow"
+    required = [shoulder_key, elbow_key, "Neck", "MidHip", "RShoulder", "LShoulder"]
+    if any(np.isnan(positions.get(kp, [np.nan])).any() for kp in required):
         return None
 
-    X_ed, Y_ed, Z_ed = rep_ed
+    # Raw anatomical vectors
+    upper_arm = positions[elbow_key] - positions[shoulder_key]
+    torso = positions["Neck"] - positions["MidHip"]
 
-    # Angles nautiques de l'épaule
-    return extraire_angles_nautiques(X_ed, Y_ed, Z_ed, X_b, Y_b, Z_b)
+    # Enhanced 2D angles with multi-plane fusion
+    return extract_nautical_angles_2d_enhanced(
+        upper_arm, torso, positions,
+        neutral_shoulder_width=neutral_shoulder_width,
+    )
+
+
+def compute_shoulder_angles_right_2d(
+    positions: Dict[str, np.ndarray],
+    neutral_shoulder_width: Optional[float] = None,
+) -> Optional[Tuple[float, float, float]]:
+    """
+    Compute right shoulder angles using enhanced 2D planar projection.
+
+    Args:
+        positions: Dictionary of smoothed keypoint positions
+        neutral_shoulder_width: Shoulder width from neutral pose for rotation estimation
+
+    Returns:
+        Tuple (alpha, beta, gamma) in degrees, or None if calculation fails
+    """
+    return _compute_shoulder_angles_2d(positions, side='R', neutral_shoulder_width=neutral_shoulder_width)
 
 
 def compute_shoulder_angles_left(
     positions: Dict[str, np.ndarray]
 ) -> Optional[Tuple[float, float, float]]:
     """
-    Compute left shoulder angles relative to torso.
+    Compute left shoulder angles relative to torso using 3D nautical angles.
 
     Args:
         positions: Dictionary of smoothed keypoint positions
@@ -161,24 +309,33 @@ def compute_shoulder_angles_left(
     # Repère Buste
     Z_b_raw = positions["Neck"] - positions["MidHip"]
     X_b_raw = positions["RShoulder"] - positions["LShoulder"]
-    rep_b = orthonormaliser_repere(Z_b_raw, X_b_raw)
+    rep_b = orthonormalize_frame(Z_b_raw, X_b_raw)
 
     if rep_b is None:
         return None
 
     X_b, Y_b, Z_b = rep_b
 
-    # Repère Épaule Gauche
+    # Vecteur bras (pas besoin de repère complet — produits scalaires uniquement)
     Z_eg_raw = positions["LShoulder"] - positions["LElbow"]
-    X_eg_raw = positions["LShoulder"] - positions["RShoulder"]
-    rep_eg = orthonormaliser_repere(Z_eg_raw, X_eg_raw)
+    return extract_shoulder_angles_dotproduct(Z_eg_raw, X_b, Y_b, Z_b)
 
-    if rep_eg is None:
-        return None
 
-    X_eg, Y_eg, Z_eg = rep_eg
+def compute_shoulder_angles_left_2d(
+    positions: Dict[str, np.ndarray],
+    neutral_shoulder_width: Optional[float] = None,
+) -> Optional[Tuple[float, float, float]]:
+    """
+    Compute left shoulder angles using enhanced 2D planar projection.
 
-    return extraire_angles_nautiques(X_eg, Y_eg, Z_eg, X_b, Y_b, Z_b)
+    Args:
+        positions: Dictionary of smoothed keypoint positions
+        neutral_shoulder_width: Shoulder width from neutral pose for rotation estimation
+
+    Returns:
+        Tuple (alpha, beta, gamma) in degrees, or None if calculation fails
+    """
+    return _compute_shoulder_angles_2d(positions, side='L', neutral_shoulder_width=neutral_shoulder_width)
 
 
 def compute_shoulder_elevation_right(

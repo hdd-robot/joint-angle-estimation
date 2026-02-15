@@ -1,0 +1,38 @@
+created_at: '2026-02-11T08:28:34.126397'
+metadata:
+  description: REBA calibration offsets from neutral standing position
+  dual_calibration: true
+  duration_seconds: 5
+  frames_collected: 65
+  k_mad: 3.5
+  method: robust_mad
+  mode: offline
+  mode_3d: true
+  n_neutre: 30
+offsets:
+  left_elbow:
+    angle: 157.2855684981156
+  left_knee:
+    angle: 0.0
+  left_shoulder:
+    alpha: 30.554101011096435
+    beta: 4.505380388680659
+    elevation: 82.17122441689052
+    gamma: -175.87928780352667
+  neck:
+    alpha: 145.1363557884997
+    beta: -11.096825732998978
+    gamma: -12.700436853688348
+  right_elbow:
+    angle: 140.29508108991845
+  right_knee:
+    angle: 0.0
+  right_shoulder:
+    alpha: 8.402409117147926
+    beta: 27.56588114989857
+    elevation: 98.18861409193381
+    gamma: 1.1067171973897973
+  torso:
+    alpha: 75.61313139257705
+    beta: -0.46789484271506254
+    gamma: 22.37894431724963

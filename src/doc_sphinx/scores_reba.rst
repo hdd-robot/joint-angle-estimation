@@ -206,7 +206,7 @@ Calcul :
 - Score A' = 4 + 1 = **5**
 - Score B' = 3 + 2 = **5**
 - Score C (Table C[5,5]) = **6**
-- Score Final = 6 + 1 = **7** → Risque élevé
+- Score Final = 6 + 1 = **7** → high risk
 
 Recommandations
 ===============

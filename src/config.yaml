@@ -53,12 +53,15 @@ paths:
   # Répertoire de sortie pour les résultats
   output_directory: "output"
 
+  # Répertoire par défaut pour les fichiers keypoints_3d.json
+  keypoints_directory: "../keypoints"
+
 # -----------------------------------------------------------------------------
 # OpenPose Configuration (installation locale avec pyopenpose)
 # -----------------------------------------------------------------------------
 openpose:
   # Chemin vers l'installation OpenPose
-  path: "/home/hdd/openpose"
+  path: "/home/dwayne/openpose"
 
 # -----------------------------------------------------------------------------
 # Enregistrement vidéo
@@ -114,8 +117,23 @@ calibration:
   # Durée de la calibration (en secondes)
   duration: 5
 
-  # Nombre de frames à ignorer au début
-  skip_initial_frames: 1
+  # Nombre de frames à utiliser pour le calcul des offsets (N_Neutre)
+  # Recommandations: 30 (minimum), 60 (optimal), 90 (maximum)
+  n_neutre: 90
+
+  # Nombre de fenêtres à ignorer au début (pour stabilité)
+  # NOTE: Utilisé uniquement par la méthode legacy (use_robust_calibration: false)
+  skip_windows: 1
+
+  # Utiliser la calibration robuste avec filtrage MAD (recommandé)
+  # true = Calibration robuste MAD (résistante aux outliers)
+  # false = Calibration legacy par moyenne simple
+  use_robust_calibration: true
+
+  # Seuil MAD pour la détection et rejection des outliers
+  # Valeurs typiques: 2.5 (strict), 3.5 (équilibré - défaut), 4.5 (permissif)
+  # Plus élevé = garde plus de données, plus bas = rejette plus d'outliers
+  k_mad: 3.5
 
   # Fichier de sauvegarde de la calibration
   save_file: "calibration_data.yaml"

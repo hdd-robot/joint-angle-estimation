@@ -1,14 +1,16 @@
 """
 Main REBA GUI Application.
 
-Interface graphique Pygame avec 3 colonnes:
-- Gauche: Boutons de contrôle
-- Centre: Affichage vidéo
-- Droite: Panneau de logs
+Pygame graphical interface with 3 columns:
+- Left: Control buttons
+- Center: Video display
+- Right: Log panel
 """
 
 import threading
 import time
+import json
+import os
 from pathlib import Path
 from typing import Optional, List, Dict
 
@@ -17,12 +19,16 @@ import numpy as np
 
 from reba_3d.gui.components import (
     Button, ToggleButton, RadioButtonGroup, LogPanel, VideoDisplay, ScoreGraph,
-    ScoreButtonGroup,
+    ScoreButtonGroup, RiskTimeline, FileSelector,
     WHITE, BLACK, GRAY, DARK_GRAY, GREEN, RED, BLUE, ORANGE
 )
 
-# Hauteur du graphique en bas de la fenêtre
+# Height of the graph at the bottom of the window
 GRAPH_HEIGHT = 140
+
+# ---- USER-DEFINED FPS for angle logging timestamps ----
+# Set this to match your camera / video source frame rate.
+LOG_ANGLES_FPS =15.0
 from reba_3d.config import get_config
 from reba_3d.config.settings import OPENPOSE_MODE
 from reba_3d.config.calibration_store import (
@@ -31,23 +37,29 @@ from reba_3d.config.calibration_store import (
 from reba_3d.core.angles import (
     calculate_angles_from_keypoints_2d,
     calculate_angles_from_keypoints_3d,
-    compute_calibration_offsets
+    compute_calibration_offsets,
+    calculate_nautical_angles_3d,
+    calculate_nautical_angles_2d,
+    compute_calibration_offsets_nested,
+    compute_calibration_offsets_robust
 )
 from reba_3d.reba.realtime_scorer import RealtimeREBAScorer, REBAScore
 from reba_3d.utils.logger import get_logger
+from reba_3d.io.angle_logger import AngleLogger
+from reba_3d.io.video_io import VideoWriter
 
-# Logger pour ce module
+# Logger for this module
 logger = get_logger("gui.app")
 
 
 class REBAApp:
     """
-    Application principale REBA avec interface Pygame.
+    Main REBA application with Pygame interface.
 
     Attributes:
-        width: Largeur de la fenêtre
-        height: Hauteur de la fenêtre
-        running: État d'exécution
+        width: Window width
+        height: Window height
+        running: Running state
     """
 
     def __init__(
@@ -58,60 +70,73 @@ class REBAApp:
         default_bag_name: Optional[str] = None
     ):
         """
-        Initialise l'application REBA.
+        Initialize the REBA application.
 
         Args:
-            width: Largeur de la fenêtre (si None, utilise config.yaml)
-            height: Hauteur de la fenêtre (si None, utilise config.yaml)
-            bag_directory: Répertoire des fichiers .bag (si None, utilise config.yaml)
-            default_bag_name: Nom du fichier .bag par défaut (si None, utilise config.yaml)
+            width: Window width (if None, uses config.yaml)
+            height: Window height (if None, uses config.yaml)
+            bag_directory: Directory for .bag files (if None, uses config.yaml)
+            default_bag_name: Default .bag filename (if None, uses config.yaml)
         """
-        # Charger la configuration YAML
+        # Load YAML configuration
         self.config = get_config()
 
-        # Utiliser les valeurs passées en argument ou celles de la config
-        # Ajouter GRAPH_HEIGHT pour le graphique en bas
+        # Use values passed as arguments or from config
+        # Add GRAPH_HEIGHT for the graph at the bottom
         self.width = width if width is not None else self.config.gui.width
         self.height = (height if height is not None else self.config.gui.height) + GRAPH_HEIGHT
         self.bag_directory = Path(bag_directory if bag_directory is not None else self.config.paths.bag_directory)
         self.default_bag_name = default_bag_name if default_bag_name is not None else self.config.paths.default_bag_file
 
-        # Dimensions des colonnes depuis la config
+        # Column dimensions from config
         self.left_panel_width = self.config.gui.left_panel_width
         self.right_panel_width = self.config.gui.right_panel_width
         self.fps = self.config.gui.fps
 
-        # État de l'application
+        # Application state
         self.running = False
-        self.mode = "offline"  # "inline" ou "offline"
+        self.mode = "offline"  # "inline" or "offline"
         self.calibration_active = False
         self.show_scores = True
         self.capturing = False
         self.paused = False
 
-        # Composants vidéo
+        # Video components
         self.current_frame = None
-        self.frozen_frame = None  # Frame figée pour le mode pause inline
+        self.frozen_frame = None  # Frozen frame for inline pause mode
         self.frame_lock = threading.Lock()
 
-        # Thread de capture
+        # Capture thread
         self.capture_thread: Optional[threading.Thread] = None
         self.stop_capture = threading.Event()
-        self.pause_event = threading.Event()  # Event pour gérer la pause
+        self.pause_event = threading.Event()  # Event to handle pause
 
-        # OpenPose detector (initialisé au premier besoin)
+        # OpenPose detector (initialized on first use)
         self.openpose_detector = None
         self._openpose_initialized = False
 
         # Calibration data
         self.calibration_start_time = None
-        self.calibration_angles: List[Dict[str, float]] = []  # Liste des angles collectés
-        self.calibration_duration = self.config.calibration.duration  # Durée en secondes
+        self.calibration_angles: List[Dict[str, float]] = []  # List of collected angles (3D or main)
+        self.calibration_angles_2d: List[Dict[str, float]] = []  # List of 2D angles (for comparison mode)
+        self.calibration_duration = self.config.calibration.duration  # Duration in seconds
+        self.calibration_mode_3d = None  # Stores if calibration is in 3D or 2D mode
+        self.calibration_mode_dual = False  # True if simultaneous 2D+3D calibration in comparison mode
+        self.current_mode_3d = None  # Track current mode to detect changes
         self.calibration_manager = get_calibration_manager()
+
+        # Separate calibration offsets for 2D comparison mode
+        # Stored directly in a dict because CalibrationManager is a singleton
+        from reba_3d.config.calibration_store import get_calibration_path, DEFAULT_NAUTICAL_OFFSETS
+        calib_2d_path = get_calibration_path(mode_3d=False)
+        if calib_2d_path.exists():
+            self.calibration_offsets_2d = load_calibration(calib_2d_path)
+        else:
+            self.calibration_offsets_2d = DEFAULT_NAUTICAL_OFFSETS.copy()
 
         # REBA scoring
         self.reba_scorer = RealtimeREBAScorer(buffer_size=10)
-        # Initialiser avec les valeurs de config
+        # Initialize with config values
         self.reba_scorer.set_load_score(self.config.reba.load_score)
         self.reba_scorer.set_coupling_score(self.config.reba.coupling_score)
         self.reba_scorer.set_activity_score(self.config.reba.activity_score)
@@ -120,49 +145,51 @@ class REBAApp:
 
         # Depth/3D data
         self.depth_intrinsics = None  # Camera intrinsics for 3D projection
-        self.depth_scale = 0.001  # Depth scale (mètres par unité), sera mis à jour par la caméra
         self.use_3d = True  # Use 3D angles when available
-        self.current_depth_frame = None  # Depth frame pour traitement temps réel
-        self._last_depth_data = None  # Dernières données depth copiées (numpy array)
-        self.frozen_depth_data = None  # Données depth figées pour mesure (numpy array)
-
-        # Mode mesure de distance
-        self.measure_mode = False
-        self.measure_points = []  # Liste de points cliqués [(x, y), ...]
-        self.measure_distance = None  # Distance calculée en mètres
-        self.measure_points_3d = []  # Points 3D correspondants
 
         # Comparison mode (shows both 2D and 3D scores)
         self.show_comparison = False
-        self.reba_scorer_2d = RealtimeREBAScorer(buffer_size=10)  # Scorer séparé pour 2D
-        # Initialiser avec les mêmes valeurs de config
+        self.reba_scorer_2d = RealtimeREBAScorer(buffer_size=10)  # Separate scorer for 2D
+        # Initialize with the same config values
         self.reba_scorer_2d.set_load_score(self.config.reba.load_score)
         self.reba_scorer_2d.set_coupling_score(self.config.reba.coupling_score)
         self.reba_scorer_2d.set_activity_score(self.config.reba.activity_score)
         self.current_reba_score_2d: Optional[REBAScore] = None
 
-        # Initialisation Pygame
+        # Risk timeline data (loaded from JSON)
+        self.risk_data: Optional[Dict] = None
+        self.current_frame_number: int = 0
+
+        # Keypoints 3D accumulator (for offline JSON export)
+        self.keypoints_3d_data: List[Dict] = []
+
+        # Angle logger for offline mode
+        self.angle_logger = AngleLogger(mode="3d")
+        self.angle_logging_enabled = False
+        self.video_writer: Optional[VideoWriter] = None
+
+        # Pygame initialization
         pygame.init()
         pygame.display.set_caption(self.config.gui.title)
         self.screen = pygame.display.set_mode((self.width, self.height))
         self.clock = pygame.time.Clock()
 
-        logger.debug(f"Fenêtre créée: {self.width}x{self.height}")
+        logger.debug(f"Window created: {self.width}x{self.height}")
 
-        # Initialisation des composants UI
+        # UI components initialization
         self._init_ui()
 
     def _init_ui(self) -> None:
-        """Initialise les composants de l'interface."""
+        """Initialize the interface components."""
         padding = 10
         button_width = self.left_panel_width - 2 * padding
         button_height = 40
 
-        # Position de départ pour les boutons
+        # Starting position for buttons
         x = padding
         y = padding
 
-        # Titre du panneau gauche
+        # Left panel title
         self.title_font = pygame.font.Font(None, 24)
 
         # --- Mode Selection (Radio Buttons) ---
@@ -177,7 +204,7 @@ class REBAApp:
         )
         y += 80
 
-        # --- Bouton Start/Stop Capture ---
+        # --- Start/Stop Capture Button ---
         self.btn_capture = ToggleButton(
             x, y, button_width, button_height,
             text_on="Stop Capture",
@@ -188,10 +215,10 @@ class REBAApp:
         )
         y += button_height + padding
 
-        # --- Bouton Pause ---
+        # --- Pause Button ---
         self.btn_pause = ToggleButton(
             x, y, button_width, button_height,
-            text_on="Reprendre",
+            text_on="Resume",
             text_off="Pause",
             callback=self._on_pause_toggle,
             color_on=GREEN,
@@ -199,7 +226,7 @@ class REBAApp:
         )
         y += button_height + padding
 
-        # --- Bouton Calibration ---
+        # --- Calibration Button ---
         self.btn_calibration = ToggleButton(
             x, y, button_width, button_height,
             text_on="Stop Calibration",
@@ -210,11 +237,11 @@ class REBAApp:
         )
         y += button_height + padding
 
-        # --- Bouton Show/Hide Scores ---
+        # --- Show/Hide Scores Button ---
         self.btn_scores = ToggleButton(
             x, y, button_width, button_height,
-            text_on="Cacher Scores",
-            text_off="Afficher Scores",
+            text_on="Hide Scores",
+            text_off="Show Scores",
             callback=self._on_scores_toggle,
             color_on=GRAY,
             color_off=GREEN,
@@ -222,60 +249,71 @@ class REBAApp:
         )
         y += button_height + padding
 
-        # --- Bouton Comparaison 2D/3D ---
+        # --- 2D/3D Comparison Button ---
         self.btn_comparison = ToggleButton(
             x, y, button_width, button_height,
-            text_on="Mode Normal",
-            text_off="Comparer 2D/3D",
+            text_on="Normal Mode",
+            text_off="Compare 2D/3D",
             callback=self._on_comparison_toggle,
             color_on=ORANGE,
             color_off=BLUE
         )
         y += button_height + padding
 
-        # --- Bouton Mesurer Taille ---
-        self.btn_measure = ToggleButton(
+        # --- Analyze Keypoints Button ---
+        self.btn_load_keypoints = Button(
             x, y, button_width, button_height,
-            text_on="Annuler Mesure",
-            text_off="Mesurer Taille",
-            callback=self._on_measure_toggle,
+            text="Analyze Keypoints",
+            callback=self._analyze_keypoints_json,
+            color=(100, 0, 200),
+            hover_color=(150, 50, 255)
+        )
+        y += button_height + padding
+
+        # --- Log Angles Button (disabled) ---
+        self.btn_log_angles = ToggleButton(
+            x, y, button_width, button_height,
+            text_on="Stop Log Angles",
+            text_off="Log Angles",
+            callback=self._on_log_angles_toggle,
             color_on=RED,
-            color_off=(100, 50, 150)  # Violet
+            color_off=(0, 128, 128)  # Teal
         )
         y += button_height + padding + 10
+        y += 10  # Reduced spacing without the button
 
-        # --- Section paramètres REBA ---
+        # --- REBA Parameters Section ---
         section_font = pygame.font.Font(None, 18)
         self.params_label_y = y
         y += 20
 
-        # Charger les valeurs depuis la config
+        # Load values from config
         reba_cfg = self.config.reba
 
-        # --- Score Charge (Load) ---
+        # --- Load Score ---
         self.score_load = ScoreButtonGroup(
             x, y,
-            label="Poids:",
+            label="Load:",
             values=[0, 1, 2, 3],
             callback=self._on_load_change,
             initial_value=reba_cfg.load_score
         )
         y += 35
 
-        # --- Score Prise (Coupling) ---
+        # --- Coupling Score ---
         self.score_coupling = ScoreButtonGroup(
             x, y,
-            label="Prise:",
+            label="Coupling:",
             values=[0, 1, 2, 3],
             callback=self._on_coupling_change,
             initial_value=reba_cfg.coupling_score
         )
         y += 35
 
-        # --- Score Activité ---
+        # --- Activity Score ---
         self.score_activity = ScoreButtonGroup(
             x, y,
-            label="Activité:",
+            label="Activity:",
             values=[0, 1, 2, 3],
             callback=self._on_activity_change,
             initial_value=reba_cfg.activity_score
@@ -283,10 +321,10 @@ class REBAApp:
         y += 35
 
         # --- Spacer ---
-        # Position du bouton Exit au-dessus du graphique
-        y = self.height - GRAPH_HEIGHT - button_height - padding - 10
+        # Position of Exit button above the graph
+        y = self.height - GRAPH_HEIGHT - button_height - padding - 50
 
-        # --- Bouton Exit ---
+        # --- Exit Button ---
         self.btn_exit = Button(
             x, y, button_width, button_height,
             "Exit",
@@ -294,76 +332,155 @@ class REBAApp:
             color=RED
         )
 
-        # --- Hauteur de la zone principale (sans le graphique) ---
+        # --- Main area height (without the graph) ---
         main_height = self.height - GRAPH_HEIGHT
 
-        # --- Zone vidéo (colonne centrale) ---
+        # --- Video area (center column) ---
         video_x = self.left_panel_width
         video_width = self.width - self.left_panel_width - self.right_panel_width
         self.video_display = VideoDisplay(
             video_x, 0, video_width, main_height
         )
 
-        # --- Panneau de logs (colonne droite) ---
+        # --- Log panel (right column) ---
         log_x = self.width - self.right_panel_width
         self.log_panel = LogPanel(
             log_x, 0, self.right_panel_width, main_height,
             max_lines=self.config.logging.max_lines
         )
 
-        # --- Graphique des scores (en bas, toute la largeur) ---
+        # --- Risk timeline (above the graph) ---
+        timeline_height = 35
+        self.risk_timeline = RiskTimeline(
+            0, main_height - timeline_height - 5, self.width, timeline_height
+        )
+
+        # --- Score graph (at bottom, full width) ---
         self.score_graph = ScoreGraph(
             0, main_height, self.width, GRAPH_HEIGHT,
             max_points=300  # ~10 secondes à 30 FPS
         )
 
-        # Message de bienvenue
-        self.log_panel.add_info("Application REBA 3D démarrée")
+        # Welcome message
+        self.log_panel.add_info("REBA 3D Application started")
         self.log_panel.add_info(f"Mode: {self.mode}")
 
-        # Vérifier le statut de calibration
+        # Check calibration status
         if self.calibration_manager.is_calibrated:
-            self.log_panel.add_success("Calibration: Chargée")
+            self.log_panel.add_success("Calibration: Loaded")
         else:
-            self.log_panel.add_warning("Calibration: Non effectuée")
+            self.log_panel.add_warning("Calibration: Not performed")
+
+    def _apply_calibration_2d(self, angles: Dict[str, Dict[str, float]]) -> Dict[str, Dict[str, float]]:
+        """
+        Applique la calibration 2D aux angles (méthode indépendante).
+
+        Args:
+            angles: Nested dictionary of raw angles
+
+        Returns:
+            Nested dictionary of calibrated angles
+        """
+        import numpy as np
+        from reba_3d.config.calibration_store import normalize_angle
+
+        calibrated = {}
+
+        for segment, angle_dict in angles.items():
+            # If no offset for this segment, keep raw values
+            if segment not in self.calibration_offsets_2d:
+                calibrated[segment] = angle_dict.copy()
+                continue
+
+            segment_offsets = self.calibration_offsets_2d[segment]
+
+            # Handle nested offsets (dict) or simple offsets (float - legacy)
+            if not isinstance(segment_offsets, dict):
+                # Legacy format: single float offset
+                calibrated[segment] = angle_dict.copy()
+                continue
+
+            calibrated[segment] = {}
+
+            for angle_name, value in angle_dict.items():
+                # Skip NaN values
+                if isinstance(value, float) and np.isnan(value):
+                    calibrated[segment][angle_name] = value
+                    continue
+
+                # Get offset for this component
+                offset = segment_offsets.get(angle_name, 0.0)
+
+                # Apply calibration formula based on segment
+                if segment == "neck":
+                    # Neck: normalize to [-180, 180)
+                    calibrated[segment][angle_name] = normalize_angle(value - offset)
+                elif segment == "buste":
+                    # Torso: direct subtraction
+                    calibrated[segment][angle_name] = value - offset
+                elif "shoulder" in segment:
+                    # Shoulders: inverted (offset - angle)
+                    calibrated[segment][angle_name] = offset - value
+                else:
+                    # Others (elbows, knees): absolute value
+                    calibrated[segment][angle_name] = abs(value - offset)
+
+        return calibrated
 
     def _on_mode_change(self, mode: str) -> None:
-        """Callback pour changement de mode."""
+        """Callback for mode change."""
         self.mode = mode.lower()
-        self.log_panel.add_info(f"Mode changé: {self.mode}")
+        self.log_panel.add_info(f"Mode changed: {self.mode}")
 
         if self.mode == "inline":
-            self.log_panel.add_warning("Mode inline: caméra RealSense")
+            self.log_panel.add_warning("Inline mode: RealSense camera")
         else:
             bag_path = self.bag_directory / self.default_bag_name
-            self.log_panel.add_info(f"Fichier: {bag_path}")
+            self.log_panel.add_info(f"File: {bag_path}")
 
     def _on_capture_toggle(self, state: bool) -> None:
-        """Callback pour start/stop capture."""
+        """Callback for start/stop capture."""
         if state:
             self._start_capture()
         else:
             self._stop_capture()
 
     def _on_calibration_toggle(self, state: bool) -> None:
-        """Callback pour start/stop calibration."""
+        """Callback for start/stop calibration."""
         if state:
-            # Vérifier que la capture est active
+            # Check that capture is active
             if not self.capturing:
-                self.log_panel.add_error("Démarrez la capture d'abord")
+                self.log_panel.add_error("Start capture first")
                 self.btn_calibration.set_state(False)
                 return
 
-            # Démarrer la calibration
+            # Start calibration
             self.calibration_active = True
             self.calibration_angles = []
+            self.calibration_angles_2d = []
             self.calibration_start_time = time.time()
 
-            self.log_panel.add_info(f"Calibration ({self.calibration_duration}s)...")
-            self.log_panel.add_warning("Restez en position neutre")
-            logger.info(f"Calibration démarrée pour {self.calibration_duration}s")
+            # Detect calibration mode
+            # ALWAYS calibrate 2D+3D simultaneously if depth available (independent of comparison mode)
+            if self.depth_intrinsics is not None:
+                self.calibration_mode_dual = True
+                self.calibration_mode_3d = True  # Used for main mode (3D)
+                mode_str = "2D+3D"
+                self.log_panel.add_info(f"Calibration {mode_str} ({self.calibration_duration}s)...")
+                self.log_panel.add_warning("Stay in neutral position")
+                logger.info(f"Dual 2D+3D calibration started for {self.calibration_duration}s")
+            else:
+                # No depth: 2D calibration only
+                self.calibration_mode_dual = False
+                self.calibration_mode_3d = False
+                mode_str = "2D"
+                self.log_panel.add_info(f"Calibration {mode_str} ({self.calibration_duration}s)...")
+                self.log_panel.add_warning("Stay in neutral position")
+                logger.info(f"Calibration {mode_str} started for {self.calibration_duration}s")
 
-            # Lancer un thread pour arrêter la calibration après la durée
+            logger.info(f"N_Neutre={self.config.calibration.n_neutre} frames, skip_windows={self.config.calibration.skip_windows}")
+
+            # Start a thread to stop calibration after the duration
             def calibration_timer():
                 time.sleep(self.calibration_duration)
                 if self.calibration_active:
@@ -372,306 +489,592 @@ class REBAApp:
             timer_thread = threading.Thread(target=calibration_timer, daemon=True)
             timer_thread.start()
         else:
-            # Arrêt manuel de la calibration
+            # Manual calibration stop
             self._finish_calibration()
 
     def _finish_calibration(self) -> None:
-        """Termine la calibration et calcule les offsets."""
+        """Finish calibration and compute offsets."""
         self.calibration_active = False
         self.btn_calibration.set_state(False)
 
         n_frames = len(self.calibration_angles)
-        logger.info(f"Calibration terminée: {n_frames} frames collectées")
+        n_frames_2d = len(self.calibration_angles_2d)
 
-        if n_frames < 30:
-            self.log_panel.add_error(f"Calibration échouée: {n_frames} frames (min 30)")
-            logger.warning("Pas assez de frames pour la calibration")
-            self.calibration_angles = []
-            self.calibration_start_time = None
-            return
-
-        # Calculer les offsets à partir des angles collectés
-        try:
-            offsets = compute_calibration_offsets(
-                self.calibration_angles,
-                window_size=30,
-                skip_windows=1  # Ignorer la première fenêtre
-            )
-
-            if not offsets:
-                self.log_panel.add_error("Calibration échouée: pas d'angles valides")
-                logger.warning("Aucun offset calculé")
+        # Dual mode: check both lists
+        if self.calibration_mode_dual:
+            logger.info(f"Dual calibration finished: {n_frames} 3D frames, {n_frames_2d} 2D frames collected")
+            if n_frames < 30 or n_frames_2d < 30:
+                self.log_panel.add_error(f"Calibration failed: {n_frames} 3D frames, {n_frames_2d} 2D frames (min 30 each)")
+                logger.warning("Not enough frames for dual calibration")
+                self.calibration_angles = []
+                self.calibration_angles_2d = []
+                self.calibration_start_time = None
+                return
+        else:
+            logger.info(f"Calibration finished: {n_frames} frames collected")
+            if n_frames < 30:
+                self.log_panel.add_error(f"Calibration failed: {n_frames} frames (min 30)")
+                logger.warning("Not enough frames for calibration")
+                self.calibration_angles = []
+                self.calibration_angles_2d = []
+                self.calibration_start_time = None
                 return
 
-            # Sauvegarder les offsets
-            metadata = {
-                'frames_collected': n_frames,
-                'duration_seconds': self.calibration_duration,
-                'mode': self.mode,
-            }
+        # Compute offsets from collected angles (nested structure)
+        try:
+            # Choice of calibration method via configuration
+            use_robust = getattr(self.config.calibration, 'use_robust_calibration', True)
+            k_mad = getattr(self.config.calibration, 'k_mad', 3.5)
 
-            if save_calibration(offsets, metadata=metadata):
-                # Recharger le gestionnaire de calibration
-                self.calibration_manager.reload()
+            from pathlib import Path
+            from reba_3d.config.calibration_store import get_calibration_path
 
-                self.log_panel.add_success(f"Calibration OK ({n_frames} frames)")
-                self.log_panel.add_info("Offsets sauvegardés")
+            # Dual mode: calibrate 2D and 3D simultaneously
+            if self.calibration_mode_dual:
+                logger.info("Dual 2D+3D calibration in progress...")
+                success_count = 0
 
-                # Afficher les offsets calculés
-                for name, value in offsets.items():
-                    logger.info(f"  {name}: {value:.2f}°")
+                # --- 3D Calibration ---
+                logger.info(f"Computing 3D offsets: {'robust MAD' if use_robust else 'legacy'}")
+                if use_robust:
+                    offsets_3d = compute_calibration_offsets_robust(
+                        self.calibration_angles,
+                        n_neutre=self.config.calibration.n_neutre,
+                        k_mad=k_mad
+                    )
+                else:
+                    offsets_3d = compute_calibration_offsets_nested(
+                        self.calibration_angles,
+                        window_size=self.config.calibration.n_neutre,
+                        skip_windows=self.config.calibration.skip_windows
+                    )
 
-                logger.info("Calibration réussie et sauvegardée")
+                if offsets_3d:
+                    metadata_3d = {
+                        'frames_collected': n_frames,
+                        'duration_seconds': self.calibration_duration,
+                        'n_neutre': self.config.calibration.n_neutre,
+                        'mode': self.mode,
+                        'mode_3d': True,
+                        'dual_calibration': True,
+                        'method': 'robust_mad' if use_robust else 'legacy_averaging',
+                        'k_mad': k_mad if use_robust else None,
+                    }
+                    calibration_path_3d = get_calibration_path(mode_3d=True)
+                    if save_calibration(offsets_3d, path=calibration_path_3d, metadata=metadata_3d):
+                        self.calibration_manager.reload(path=calibration_path_3d, mode_3d=True)
+                        logger.info(f"✓ 3D calibration saved: {calibration_path_3d.name}")
+                        # Log 3D offsets for debug
+                        for segment, angle_dict in offsets_3d.items():
+                            if isinstance(angle_dict, dict):
+                                angle_strs = [f"{k}={v:.1f}°" for k, v in angle_dict.items()]
+                                logger.info(f"  3D {segment}: {', '.join(angle_strs)}")
+                        success_count += 1
+                    else:
+                        logger.error("✗ Failed to save 3D calibration")
+                else:
+                    logger.warning("✗ No 3D offset computed")
+
+                # --- 2D Calibration ---
+                logger.info(f"Computing 2D offsets: {'robust MAD' if use_robust else 'legacy'}")
+                if use_robust:
+                    offsets_2d = compute_calibration_offsets_robust(
+                        self.calibration_angles_2d,
+                        n_neutre=self.config.calibration.n_neutre,
+                        k_mad=k_mad
+                    )
+                else:
+                    offsets_2d = compute_calibration_offsets_nested(
+                        self.calibration_angles_2d,
+                        window_size=self.config.calibration.n_neutre,
+                        skip_windows=self.config.calibration.skip_windows
+                    )
+
+                if offsets_2d:
+                    metadata_2d = {
+                        'frames_collected': n_frames_2d,
+                        'duration_seconds': self.calibration_duration,
+                        'n_neutre': self.config.calibration.n_neutre,
+                        'mode': self.mode,
+                        'mode_3d': False,
+                        'dual_calibration': True,
+                        'method': 'robust_mad' if use_robust else 'legacy_averaging',
+                        'k_mad': k_mad if use_robust else None,
+                    }
+                    calibration_path_2d = get_calibration_path(mode_3d=False)
+                    if save_calibration(offsets_2d, path=calibration_path_2d, metadata=metadata_2d):
+                        # Reload 2D offsets in our separate dict
+                        self.calibration_offsets_2d = offsets_2d.copy()
+                        logger.info(f"✓ 2D calibration saved: {calibration_path_2d.name}")
+                        # Log 2D offsets for debug
+                        for segment, angle_dict in offsets_2d.items():
+                            if isinstance(angle_dict, dict):
+                                angle_strs = [f"{k}={v:.1f}°" for k, v in angle_dict.items()]
+                                logger.info(f"  2D {segment}: {', '.join(angle_strs)}")
+                        # Reset log flag to display new offsets
+                        if hasattr(self, '_logged_2d_offsets'):
+                            delattr(self, '_logged_2d_offsets')
+                        success_count += 1
+                    else:
+                        logger.error("✗ Failed to save 2D calibration")
+                else:
+                    logger.warning("✗ No 2D offset computed")
+
+                # Final messages
+                if success_count == 2:
+                    method_str = "robust MAD" if use_robust else "simple average"
+                    self.log_panel.add_success(f"Calibration 2D+3D OK")
+                    self.log_panel.add_info(f"3D: {n_frames} frames, 2D: {n_frames_2d} frames")
+                    logger.info("Dual calibration successful and saved")
+                elif success_count == 1:
+                    self.log_panel.add_warning("Partial calibration (1/2 successful)")
+                else:
+                    self.log_panel.add_error("Dual calibration failed")
+
+            # Simple mode: 2D or 3D calibration
             else:
-                self.log_panel.add_error("Erreur sauvegarde calibration")
-                logger.error("Échec sauvegarde calibration")
+                if use_robust:
+                    logger.info(
+                        f"Calibration robuste MAD (n_neutre={self.config.calibration.n_neutre}, "
+                        f"k_mad={k_mad})"
+                    )
+                    offsets = compute_calibration_offsets_robust(
+                        self.calibration_angles,
+                        n_neutre=self.config.calibration.n_neutre,
+                        k_mad=k_mad
+                    )
+                else:
+                    logger.info(
+                        f"Calibration legacy (window_size={self.config.calibration.n_neutre}, "
+                        f"skip_windows={self.config.calibration.skip_windows})"
+                    )
+                    offsets = compute_calibration_offsets_nested(
+                        self.calibration_angles,
+                        window_size=self.config.calibration.n_neutre,
+                        skip_windows=self.config.calibration.skip_windows
+                    )
 
+                if not offsets:
+                    self.log_panel.add_error("Calibration failed: no valid angles")
+                    logger.warning("No offset computed")
+                    return
+
+                # Save offsets with enriched metadata
+                metadata = {
+                    'frames_collected': n_frames,
+                    'duration_seconds': self.calibration_duration,
+                    'n_neutre': self.config.calibration.n_neutre,
+                    'skip_windows': self.config.calibration.skip_windows,
+                    'mode': self.mode,
+                    'mode_3d': self.calibration_mode_3d,
+                    'dual_calibration': False,
+                    'method': 'robust_mad' if use_robust else 'legacy_averaging',
+                    'k_mad': k_mad if use_robust else None,
+                }
+
+                calibration_path = get_calibration_path(mode_3d=self.calibration_mode_3d)
+
+                if save_calibration(offsets, path=calibration_path, metadata=metadata):
+                    # Reload calibration manager with the correct mode
+                    self.calibration_manager.reload(path=calibration_path, mode_3d=self.calibration_mode_3d)
+
+                    # Success message with method and mode indication
+                    method_str = "robust MAD" if use_robust else "simple average"
+                    mode_str = "3D" if self.calibration_mode_3d else "2D"
+                    self.log_panel.add_success(f"Calibration {mode_str} OK ({method_str})")
+                    self.log_panel.add_info(f"{n_frames} frames → {self.config.calibration.n_neutre} used")
+                    self.log_panel.add_info(f"File: {calibration_path.name}")
+
+                    # Display computed offsets (nested format)
+                    for segment, angle_dict in offsets.items():
+                        if isinstance(angle_dict, dict):
+                            # Nested format (nautical)
+                            angle_strs = [f"{k}={v:.1f}°" for k, v in angle_dict.items()]
+                            logger.info(f"  {segment}: {', '.join(angle_strs)}")
+                        else:
+                            # Simple format (legacy, should not happen)
+                            logger.info(f"  {segment}: {angle_dict:.2f}°")
+
+                    logger.info("Calibration successful and saved")
+                else:
+                    self.log_panel.add_error("Calibration save error")
+                    logger.error("Calibration save failed")
+
+        except ValueError as e:
+            # Specific calibration errors (insufficient frames, etc.)
+            self.log_panel.add_error(f"Calibration impossible: {str(e)[:40]}")
+            logger.error(f"Calibration error: {e}")
         except Exception as e:
-            self.log_panel.add_error(f"Erreur calibration: {str(e)[:20]}")
-            logger.exception(f"Erreur lors du calcul des offsets: {e}")
+            self.log_panel.add_error(f"Calibration error: {str(e)[:20]}")
+            logger.exception(f"Error during offset calculation: {e}")
 
-        # Réinitialiser les données
+        # Reset data
         self.calibration_angles = []
+        self.calibration_angles_2d = []
         self.calibration_start_time = None
+        self.calibration_mode_dual = False
 
     def _on_scores_toggle(self, state: bool) -> None:
-        """Callback pour afficher/cacher les scores."""
+        """Callback for show/hide scores."""
         self.show_scores = state
         self.video_display.overlay_scores = state
         if state:
-            self.log_panel.add_info("Affichage des scores activé")
+            self.log_panel.add_info("Score display enabled")
         else:
-            self.log_panel.add_info("Affichage des scores désactivé")
+            self.log_panel.add_info("Score display disabled")
 
     def _on_comparison_toggle(self, state: bool) -> None:
-        """Callback pour activer/désactiver le mode comparaison 2D/3D."""
+        """Callback for enabling/disabling 2D/3D comparison mode."""
         self.show_comparison = state
         if state:
-            self.log_panel.add_info("Mode comparaison 2D/3D activé")
+            # Reload 2D offsets in case they were updated
+            from reba_3d.config.calibration_store import get_calibration_path, DEFAULT_NAUTICAL_OFFSETS
+            calib_2d_path = get_calibration_path(mode_3d=False)
+            if calib_2d_path.exists():
+                self.calibration_offsets_2d = load_calibration(calib_2d_path)
+                logger.info(f"Calibration 2D rechargée: {calib_2d_path.name}")
+            else:
+                logger.warning("Aucune calibration 2D trouvée, utilisation des valeurs par défaut")
+                self.calibration_offsets_2d = DEFAULT_NAUTICAL_OFFSETS.copy()
+            self.log_panel.add_info("2D/3D comparison mode enabled")
         else:
-            self.log_panel.add_info("Mode comparaison désactivé")
+            self.log_panel.add_info("Comparison mode disabled")
+
+    def _on_log_angles_toggle(self, state: bool) -> None:
+        """Callback for enabling/disabling angle logging."""
+        self.angle_logging_enabled = state
+        if state:
+            # Start recording — pick mode based on current state
+            if self.show_comparison:
+                mode = "2d3d"
+            elif self.use_3d and self.depth_intrinsics:
+                mode = "3d"
+            else:
+                mode = "2d"
+            self.angle_logger = AngleLogger(mode=mode, fps=LOG_ANGLES_FPS)
+            self.angle_logger.start_recording()
+            # VideoWriter will be lazily created on the first frame
+            # (we need the frame dimensions which are only known at that point)
+            self.video_writer = None
+            self.log_panel.add_info(f"Angle log started (mode {mode.upper()}, {LOG_ANGLES_FPS:g} fps)")
+            logger.info(f"Starting angle log in {mode.upper()} mode, fps={LOG_ANGLES_FPS}")
+        else:
+            # Stop and save
+            if self.angle_logger.is_recording():
+                self.angle_logger.stop_recording()
+                # Save files
+                txt_path = self.angle_logger.save_to_file()
+                csv_path = self.angle_logger.save_to_csv()
+                self.log_panel.add_success(f"Angles saved: {txt_path.name}")
+                logger.info(f"Angles saved: {txt_path}")
+                logger.info(f"CSV saved: {csv_path}")
+
+                # Finalize skeleton video
+                if self.video_writer is not None:
+                    video_path = self.video_writer.output_path
+                    self.video_writer.release()
+                    self.video_writer = None
+                    self.log_panel.add_success(f"Video saved: {video_path.name}")
+                    logger.info(f"Skeleton video saved: {video_path}")
 
     def _on_load_change(self, value: int) -> None:
-        """Callback pour changement du score de charge."""
+        """Callback for load score change."""
         self.reba_scorer.set_load_score(value)
         self.reba_scorer_2d.set_load_score(value)
-        self.log_panel.add_info(f"Poids: {value}")
+        self.log_panel.add_info(f"Load: {value}")
 
     def _on_coupling_change(self, value: int) -> None:
-        """Callback pour changement du score de prise."""
+        """Callback for coupling score change."""
         self.reba_scorer.set_coupling_score(value)
         self.reba_scorer_2d.set_coupling_score(value)
-        self.log_panel.add_info(f"Prise: {value}")
+        self.log_panel.add_info(f"Coupling: {value}")
 
     def _on_activity_change(self, value: int) -> None:
-        """Callback pour changement du score d'activité."""
+        """Callback for activity score change."""
         self.reba_scorer.set_activity_score(value)
         self.reba_scorer_2d.set_activity_score(value)
-        self.log_panel.add_info(f"Activité: {value}")
+        self.log_panel.add_info(f"Activity: {value}")
 
     def _on_pause_toggle(self, state: bool) -> None:
-        """Callback pour pause/reprendre la vidéo."""
+        """Callback for pause/resume video."""
         self.paused = state
         if state:
             self.pause_event.set()
-            # Figer le frame et le depth actuels
-            with self.frame_lock:
-                if self.current_frame is not None:
-                    self.frozen_frame = self.current_frame.copy()
-                # Utiliser les données depth déjà copiées dans _process_frame
-                if hasattr(self, '_last_depth_data') and self._last_depth_data is not None:
-                    self.frozen_depth_data = self._last_depth_data.copy()
-                    logger.debug(f"Depth figé: {self.frozen_depth_data.shape}")
-                else:
-                    self.frozen_depth_data = None
-                    logger.warning("Pas de données depth disponibles")
-            self.log_panel.add_info("Pause activée")
-            logger.debug("Pause activée")
+            # In inline mode, freeze current frame
+            if self.mode == "inline":
+                with self.frame_lock:
+                    if self.current_frame is not None:
+                        self.frozen_frame = self.current_frame.copy()
+            self.log_panel.add_info("Pause enabled")
+            logger.debug("Pause enabled")
         else:
             self.pause_event.clear()
             self.frozen_frame = None
-            self.frozen_depth_data = None
-            # Désactiver le mode mesure si on reprend la lecture
-            if self.measure_mode or self.measure_points:
-                self._reset_measure_mode()
-                self.btn_measure.set_state(False)
-            self.log_panel.add_info("Lecture reprise")
-            logger.debug("Lecture reprise")
-
-    def _on_measure_toggle(self, state: bool) -> None:
-        """Callback pour activer/désactiver le mode mesure de distance."""
-        if state:
-            # Vérifier qu'on est en pause
-            if not self.paused:
-                self.log_panel.add_error("Mettez en pause d'abord")
-                self.btn_measure.set_state(False)
-                return
-            # Vérifier qu'on a le depth figé
-            if self.frozen_depth_data is None:
-                self.log_panel.add_error("Pas de données depth")
-                self.btn_measure.set_state(False)
-                return
-            # Vérifier les intrinsics
-            if self.depth_intrinsics is None:
-                self.log_panel.add_error("Pas d'intrinsics caméra")
-                self.btn_measure.set_state(False)
-                return
-
-            self.measure_mode = True
-            self.measure_points = []
-            self.measure_points_3d = []
-            self.measure_distance = None
-            self.log_panel.add_info("Mode mesure: cliquez 2 points")
-            logger.debug(f"Mode mesure activé, depth shape: {self.frozen_depth_data.shape}")
-        else:
-            self._reset_measure_mode()
-
-    def _reset_measure_mode(self) -> None:
-        """Réinitialise le mode mesure."""
-        self.measure_mode = False
-        self.measure_points = []
-        self.measure_points_3d = []
-        self.measure_distance = None
-        self.log_panel.add_info("Mode mesure désactivé")
-
-    def _handle_measure_click(self, pos: tuple, point_index: int = 0) -> None:
-        """
-        Gère un clic en mode mesure de distance.
-
-        Args:
-            pos: Position du clic (x, y) dans la fenêtre Pygame
-            point_index: 0 pour point 1 (clic gauche), 1 pour point 2 (clic droit)
-        """
-        if not self.measure_mode and not self.measure_points:
-            return
-
-        # Vérifier si le clic est dans la zone vidéo
-        video_rect = self.video_display.rect
-        if not video_rect.collidepoint(pos):
-            return
-
-        # Convertir les coordonnées Pygame en coordonnées image
-        # La vidéo est centrée dans video_display
-        display_frame = self.frozen_frame if self.frozen_frame is not None else self.current_frame
-        if display_frame is None:
-            return
-
-        frame_h, frame_w = display_frame.shape[:2]
-
-        # Calculer le scale et l'offset de l'image dans la zone vidéo
-        scale = min(video_rect.width / frame_w, video_rect.height / frame_h)
-        display_w, display_h = int(frame_w * scale), int(frame_h * scale)
-        offset_x = video_rect.x + (video_rect.width - display_w) // 2
-        offset_y = video_rect.y + (video_rect.height - display_h) // 2
-
-        # Vérifier si le clic est dans l'image affichée
-        click_x, click_y = pos
-        if not (offset_x <= click_x <= offset_x + display_w and
-                offset_y <= click_y <= offset_y + display_h):
-            return
-
-        # Convertir en coordonnées image originale
-        img_x = int((click_x - offset_x) / scale)
-        img_y = int((click_y - offset_y) / scale)
-
-        # Projeter en 3D
-        point_3d = self._project_to_3d(img_x, img_y)
-
-        if point_3d is None:
-            self.log_panel.add_warning("Depth invalide à ce point")
-            return
-
-        # Initialiser les listes si nécessaire
-        while len(self.measure_points) < 2:
-            self.measure_points.append(None)
-            self.measure_points_3d.append(None)
-
-        # Mettre à jour le point spécifié
-        self.measure_points[point_index] = (img_x, img_y)
-        self.measure_points_3d[point_index] = point_3d
-
-        point_num = point_index + 1
-        depth_m = point_3d[2]
-        self.log_panel.add_info(f"Point {point_num}: ({img_x}, {img_y}) z={depth_m:.2f}m")
-
-        # Si on a les 2 points, calculer la distance
-        if self.measure_points[0] is not None and self.measure_points[1] is not None:
-            self._calculate_distance()
-
-    def _project_to_3d(self, x: int, y: int):
-        """
-        Projette un point 2D en 3D en utilisant les données depth figées.
-
-        Args:
-            x, y: Coordonnées pixel dans l'image
-
-        Returns:
-            Point 3D [x, y, z] en mètres ou None si invalide
-        """
-        if self.frozen_depth_data is None or self.depth_intrinsics is None:
-            logger.debug("Pas de données depth figées ou intrinsics")
-            return None
-
-        try:
-            import pyrealsense2 as rs
-
-            # Vérifier les bornes de l'image
-            height, width = self.frozen_depth_data.shape[:2]
-
-            if x < 0 or x >= width or y < 0 or y >= height:
-                logger.debug(f"Coordonnées hors bornes: ({x}, {y}) vs ({width}x{height})")
-                return None
-
-            # Récupérer la valeur depth brute (uint16)
-            depth_raw = self.frozen_depth_data[y, x]
-
-            # Convertir en mètres avec le depth scale de la caméra
-            depth = float(depth_raw) * self.depth_scale
-
-            if depth <= 0 or depth > 10.0:
-                logger.debug(f"Depth invalide: {depth}m (raw={depth_raw}) à ({x}, {y})")
-                return None
-
-            # Déprojeter en 3D
-            point_3d = rs.rs2_deproject_pixel_to_point(
-                self.depth_intrinsics, [float(x), float(y)], depth
-            )
-            return np.array(point_3d)
-
-        except Exception as e:
-            logger.debug(f"Erreur projection 3D: {e}")
-            return None
-
-    def _calculate_distance(self) -> None:
-        """Calcule la distance 3D entre les deux points mesurés."""
-        if len(self.measure_points_3d) < 2:
-            return
-
-        p1 = self.measure_points_3d[0]
-        p2 = self.measure_points_3d[1]
-
-        if p1 is None or p2 is None:
-            return
-
-        # Distance euclidienne 3D
-        distance = np.linalg.norm(p2 - p1)
-        self.measure_distance = distance
-
-        # Convertir en cm pour l'affichage
-        distance_cm = distance * 100
-
-        self.log_panel.add_success(f"Taille: {distance_cm:.1f} cm")
-        logger.info(f"Distance mesurée: {distance_cm:.1f} cm (3D: {p1} -> {p2})")
+            self.log_panel.add_info("Playback resumed")
+            logger.debug("Playback resumed")
 
     def _on_exit(self) -> None:
-        """Callback pour quitter."""
-        self.log_panel.add_info("Fermeture de l'application...")
+        """Callback for exit."""
+        self.log_panel.add_info("Closing application...")
         self.running = False
 
+    def _analyze_keypoints_json(self) -> None:
+        """Open a file selector and analyze the keypoints_3d.json file."""
+        # Clear old risk data
+        self.risk_data = None
+        self.risk_timeline.clear()
+
+        try:
+            # Determine default directory (try config, then data_output, then cwd)
+            default_dir = os.getcwd()
+            if hasattr(self.config, 'paths') and hasattr(self.config.paths, 'keypoints_directory'):
+                candidate = Path(self.config.paths.keypoints_directory).resolve()
+                if candidate.is_dir():
+                    default_dir = str(candidate)
+            # Fallback: if configured dir missing, try src/data_output
+            if not Path(default_dir).is_dir() or default_dir == os.getcwd():
+                data_output = Path("src/data_output").resolve()
+                if data_output.is_dir():
+                    default_dir = str(data_output)
+
+            # Create file selector
+            file_selector = FileSelector(
+                directory=default_dir,
+                extension=".json",
+                title="Select keypoints_3d.json"
+            )
+
+            # Display selector and get file
+            filepath = file_selector.run()
+
+            # Restore main screen after selector
+            self.screen = pygame.display.set_mode((self.width, self.height))
+            pygame.display.set_caption(self.config.gui.title)
+
+            if filepath:
+                self.log_panel.add_info("Analysis in progress...")
+                logger.info(f"Analyse de: {filepath}")
+
+                try:
+                    # Utiliser REBAAssessor pour l'analyse complète
+                    from reba_3d.reba.risk_assessment import REBAAssessor
+
+                    keypoints_file = Path(filepath)
+                    risk_times_dir = keypoints_file.parent / "risk_times"
+                    risk_times_dir.mkdir(exist_ok=True)
+
+                    # Get neutral frames for custom calibration (if configured)
+                    neutral_frames = self.config.calibration.get_neutral_frames()
+                    if neutral_frames:
+                        self.log_panel.add_info(f"Calibration: frames {neutral_frames[0]}-{neutral_frames[1]}")
+                    else:
+                        self.log_panel.add_info("Calibration: offsets statiques")
+
+                    # === Analyse REBA 3D ===
+                    self.log_panel.add_info("Analyse REBA 3D...")
+                    assessor_3d = REBAAssessor(
+                        window_size=self.config.reba.window_size,
+                        fps=self.config.reba.video_fps,
+                        feet_threshold=self.config.reba.feet_contact_threshold,
+                        mode="3d",
+                        neutral_frames=neutral_frames
+                    )
+
+                    results_3d = assessor_3d.analyze(
+                        filepath,
+                        load_malus=self.config.reba.load_score,
+                        coupling_malus=self.config.reba.coupling_score,
+                        activity_malus=self.config.reba.activity_score
+                    )
+
+                    # Sauvegarder risk_times_3d.json
+                    risk_times_3d = assessor_3d.get_risk_times_for_video()
+                    risk_times_path_3d = risk_times_dir / "risk_times_3d.json"
+                    with open(risk_times_path_3d, 'w') as f:
+                        json.dump(risk_times_3d, f, indent=2)
+
+                    # Sauvegarder le rapport détaillé 3D
+                    detailed_log_path_3d = keypoints_file.parent / "reba_analysis_3d.log"
+                    assessor_3d.save_detailed_analysis_log(str(detailed_log_path_3d))
+
+                    self.log_panel.add_success(f"✓ risk_times_3d.json créé")
+                    self.log_panel.add_success(f"✓ reba_analysis_3d.log créé")
+                    logger.info(f"Fichier exporté: {risk_times_path_3d}")
+                    logger.info(f"Fichier exporté: {detailed_log_path_3d}")
+
+                    # === Analyse REBA 2D ===
+                    self.log_panel.add_info("Analyse REBA 2D...")
+                    assessor_2d = REBAAssessor(
+                        window_size=self.config.reba.window_size,
+                        fps=self.config.reba.video_fps,
+                        feet_threshold=self.config.reba.feet_contact_threshold,
+                        mode="2d",
+                        neutral_frames=neutral_frames
+                    )
+
+                    results_2d = assessor_2d.analyze(
+                        filepath,
+                        load_malus=self.config.reba.load_score,
+                        coupling_malus=self.config.reba.coupling_score,
+                        activity_malus=self.config.reba.activity_score
+                    )
+
+                    # Sauvegarder risk_times_2d.json
+                    risk_times_2d = assessor_2d.get_risk_times_for_video()
+                    risk_times_path_2d = risk_times_dir / "risk_times_2d.json"
+                    with open(risk_times_path_2d, 'w') as f:
+                        json.dump(risk_times_2d, f, indent=2)
+
+                    # Sauvegarder le rapport détaillé 2D
+                    detailed_log_path_2d = keypoints_file.parent / "reba_analysis_2d.log"
+                    assessor_2d.save_detailed_analysis_log(str(detailed_log_path_2d))
+
+                    self.log_panel.add_success(f"✓ risk_times_2d.json créé")
+                    self.log_panel.add_success(f"✓ reba_analysis_2d.log créé")
+                    logger.info(f"Fichier exporté: {risk_times_path_2d}")
+                    logger.info(f"Fichier exporté: {detailed_log_path_2d}")
+
+                    # Summary
+                    self.log_panel.add_success(f"Analysis complete: {results_3d['num_windows']} windows")
+                    logger.info(f"Analyse réussie: {results_3d['num_windows']} fenêtres")
+
+                    # Display formatted results (use 3D as reference)
+                    self._display_reba_results(assessor_3d)
+
+                    # Convert risk_times for timeline (frames instead of seconds)
+                    # Use 3D results for timeline
+                    self._update_timeline_from_results(assessor_3d, results_3d)
+
+                except json.JSONDecodeError as e:
+                    self.log_panel.add_error(f"JSON invalide: {str(e)[:20]}")
+                    logger.error(f"Erreur parsing JSON: {e}")
+                except Exception as e:
+                    self.log_panel.add_error(f"Erreur analyse: {str(e)[:30]}")
+                    logger.exception(f"Erreur lors de l'analyse: {e}")
+            else:
+                self.log_panel.add_info("Selection cancelled")
+                logger.info("File selection cancelled by user")
+
+        except Exception as e:
+            self.log_panel.add_error(f"Selection error: {str(e)[:20]}")
+            logger.exception(f"Error during file selection: {e}")
+
+    def _display_reba_results(self, assessor) -> None:
+        """Display formatted REBA results in the LogPanel."""
+        self.log_panel.add_info("=" * 30)
+        self.log_panel.add_info("REBA RESULTS")
+        self.log_panel.add_info("=" * 30)
+
+        # Build requested format: [ F1: no risk, F2: no risk, ... ]
+        risk_labels = assessor.scores["risk_labels"]
+        recalculated = assessor.scores["recalculated"]
+
+        formatted_results = []
+        for i, (label, recalc) in enumerate(zip(risk_labels, recalculated), start=1):
+            tag = "*" if recalc else ""
+            formatted_results.append(f"F{i}{tag}: {label}")
+
+        # Display in groups of 5 to avoid overloading the log
+        result_text = "[ " + ", ".join(formatted_results) + " ]"
+
+        # Split into lines of max 60 characters
+        lines = []
+        current_line = "["
+        for i, item in enumerate(formatted_results):
+            separator = ", " if i > 0 else " "
+            if len(current_line + separator + item) > 60 and current_line != "[":
+                lines.append(current_line + ",")
+                current_line = "  " + item
+            else:
+                current_line += separator + item
+
+        if current_line:
+            lines.append(current_line + " ]")
+
+        for line in lines:
+            self.log_panel.add_info(line)
+
+        # Statistics by risk level
+        self.log_panel.add_info("")
+        self.log_panel.add_info("STATISTICS:")
+
+        from collections import Counter
+        risk_counts = Counter(risk_labels)
+
+        for risk_level, count in risk_counts.items():
+            if risk_level == "negligible risk":
+                self.log_panel.add_success(f"  {risk_level}: {count}")
+            elif risk_level == "low risk":
+                self.log_panel.add_info(f"  {risk_level}: {count}")
+            elif risk_level == "medium risk":
+                self.log_panel.add_warning(f"  {risk_level}: {count}")
+            elif risk_level in ["high risk", "very high risk"]:
+                self.log_panel.add_error(f"  {risk_level}: {count}")
+            else:
+                self.log_panel.add_info(f"  {risk_level}: {count}")
+
+        self.log_panel.add_info("=" * 30)
+
+    def _update_timeline_from_results(self, assessor, results) -> None:
+        """Update timeline with REBA results (in frames)."""
+        # Build risk intervals in frames from windows_info
+        fps = self.config.reba.video_fps
+        window_size = self.config.reba.window_size
+
+        risk_data_frames = {
+            "negligible risk": [],
+            "low risk": [],
+            "medium risk": [],
+            "high risk": [],
+            "very high risk": [],
+            "invalid": []
+        }
+
+        label_map_fr_to_en = {
+            "negligible risk": "negligible risk",
+            "low risk": "low risk",
+            "medium risk": "medium risk",
+            "high risk": "high risk",
+            "very high risk": "very high risk",
+            "invalide": "invalid"
+        }
+
+        # Iterate through windows_info and risk_labels to build intervals in frames
+        for i, window_info in enumerate(results['windows_info']):
+            if i < len(assessor.scores["risk_labels"]):
+                label_fr = assessor.scores["risk_labels"][i]
+                label_en = label_map_fr_to_en.get(label_fr, "invalid")
+
+                # Get start and end frames from windows_info
+                frames = window_info.get("frames", [])
+                if frames:
+                    start_frame = frames[0]
+                    end_frame = frames[-1]
+                    risk_data_frames[label_en].append([start_frame, end_frame])
+
+        # Calculate total frames
+        total_frames = 0
+        for intervals in risk_data_frames.values():
+            for start, end in intervals:
+                total_frames = max(total_frames, end)
+
+        # Update timeline
+        if total_frames > 0:
+            self.risk_data = risk_data_frames
+            self.risk_timeline.set_data(risk_data_frames, total_frames)
+            logger.info(f"Timeline mise à jour: {total_frames} frames")
+
     def _start_capture(self) -> None:
-        """Démarre la capture vidéo."""
+        """Start video capture."""
         if self.capturing:
             return
+
+        # Clear old risk data from timeline
+        self.risk_data = None
+        self.risk_timeline.clear()
+
+        # Reset keypoints 3D accumulator
+        self.keypoints_3d_data = []
 
         self.stop_capture.clear()
         self.capturing = True
@@ -681,40 +1084,58 @@ class REBAApp:
                 target=self._capture_inline,
                 daemon=True
             )
-            self.log_panel.add_info("Démarrage capture inline...")
+            self.log_panel.add_info("Starting inline capture...")
         else:
             self.capture_thread = threading.Thread(
                 target=self._capture_offline,
                 daemon=True
             )
-            self.log_panel.add_info("Démarrage capture offline...")
+            self.log_panel.add_info("Starting offline capture...")
 
         self.capture_thread.start()
 
     def _stop_capture(self) -> None:
-        """Arrête la capture vidéo."""
+        """Stop video capture."""
         self.stop_capture.set()
         self.capturing = False
-        # Réinitialiser l'état de pause
+        # Reset pause state
         self.paused = False
         self.pause_event.clear()
         self.frozen_frame = None
         self.btn_pause.set_state(False)
-        # Réinitialiser le graphique
+        # Reset graph
         self.score_graph.clear()
         self.current_reba_score = None
         self.current_reba_score_2d = None
-        self.log_panel.add_info("Capture arrêtée")
+
+        # Save accumulated 3D keypoints to JSON
+        if self.keypoints_3d_data:
+            output_dir = Path("src/data_output")
+            output_dir.mkdir(parents=True, exist_ok=True)
+            kp_path = output_dir / "keypoints_3d.json"
+            try:
+                with open(kp_path, 'w', encoding='utf-8') as f:
+                    json.dump(self.keypoints_3d_data, f, indent=4)
+                self.log_panel.add_success(f"Keypoints 3D: {kp_path.name} ({len(self.keypoints_3d_data)} frames)")
+                logger.info(f"Keypoints 3D saved: {kp_path} ({len(self.keypoints_3d_data)} frames)")
+            except Exception as e:
+                self.log_panel.add_error(f"Keypoints save error: {str(e)[:30]}")
+                logger.exception(f"Error saving keypoints 3D: {e}")
+            self.keypoints_3d_data = []
+
+        # Reset frame counter
+        self.current_frame_number = 0
+        self.log_panel.add_info("Capture stopped")
 
     def _capture_inline(self) -> None:
-        """Thread de capture en mode inline (caméra RealSense live)."""
+        """Capture thread in inline mode (live RealSense camera)."""
         try:
             import pyrealsense2 as rs
 
             pipeline = rs.pipeline()
             rs_config = rs.config()
 
-            # Utiliser les paramètres de config.yaml
+            # Use config.yaml parameters
             rs_cfg = self.config.realsense
             rs_config.enable_stream(
                 rs.stream.color,
@@ -728,22 +1149,16 @@ class REBAApp:
             )
 
             profile = pipeline.start(rs_config)
-            logger.info("Caméra RealSense connectée")
-            self.log_panel.add_success("Caméra RealSense connectée")
+            logger.info("RealSense camera connected")
+            self.log_panel.add_success("RealSense camera connected")
 
-            # Aligner depth sur color
+            # Align depth to color
             align = rs.align(rs.stream.color)
 
-            # Récupérer les intrinsics de la caméra COLOR (car depth aligné sur color)
+            # Get COLOR camera intrinsics (since depth is aligned to color)
             color_profile = profile.get_stream(rs.stream.color).as_video_stream_profile()
             self.depth_intrinsics = color_profile.get_intrinsics()
             logger.info(f"Intrinsics 3D (aligned): {self.depth_intrinsics.width}x{self.depth_intrinsics.height}")
-
-            # Récupérer le depth scale réel de la caméra
-            depth_sensor = profile.get_device().first_depth_sensor()
-            self.depth_scale = depth_sensor.get_depth_scale()
-            logger.info(f"Depth scale: {self.depth_scale}")
-            self.log_panel.add_info(f"Depth scale: {self.depth_scale}")
 
             while not self.stop_capture.is_set():
                 frames = pipeline.wait_for_frames()
@@ -753,29 +1168,29 @@ class REBAApp:
 
                 if color_frame and depth_frame:
                     frame = np.asanyarray(color_frame.get_data())
-                    # En mode pause inline, on continue de capturer mais on n'actualise pas l'affichage
+                    # In inline pause mode, we continue capturing but don't update display
                     if not self.pause_event.is_set():
                         self._process_frame(frame, depth_frame)
 
             pipeline.stop()
             self.depth_intrinsics = None
-            logger.info("Caméra RealSense déconnectée")
-            self.log_panel.add_info("Caméra RealSense déconnectée")
+            logger.info("RealSense camera disconnected")
+            self.log_panel.add_info("RealSense camera disconnected")
 
         except ImportError:
-            logger.error("pyrealsense2 non installé")
-            self.log_panel.add_error("pyrealsense2 non installé")
+            logger.error("pyrealsense2 not installed")
+            self.log_panel.add_error("pyrealsense2 not installed")
         except Exception as e:
-            logger.exception(f"Erreur caméra: {e}")
-            self.log_panel.add_error(f"Erreur caméra: {str(e)[:30]}")
+            logger.exception(f"Camera error: {e}")
+            self.log_panel.add_error(f"Camera error: {str(e)[:30]}")
 
     def _capture_offline(self) -> None:
-        """Thread de capture en mode offline (fichier .bag)."""
+        """Capture thread in offline mode (.bag file)."""
         bag_path = self.bag_directory / self.default_bag_name
 
         if not bag_path.exists():
-            logger.error(f"Fichier non trouvé: {bag_path}")
-            self.log_panel.add_error(f"Fichier non trouvé: {bag_path}")
+            logger.error(f"File not found: {bag_path}")
+            self.log_panel.add_error(f"File not found: {bag_path}")
             self.capturing = False
             self.btn_capture.set_state(False)
             return
@@ -794,34 +1209,27 @@ class REBAApp:
             playback = device.as_playback()
             playback.set_real_time(self.config.realsense.realtime_playback)
 
-            # Aligner depth sur color
+            # Align depth to color
             align = rs.align(rs.stream.color)
-            logger.info(f"Fichier .bag chargé: {bag_path}")
-            self.log_panel.add_success(f"Fichier .bag chargé")
+            logger.info(f".bag file loaded: {bag_path}")
+            self.log_panel.add_success(f".bag file loaded")
 
-            # Récupérer les intrinsics depuis le stream COLOR (car depth aligné sur color)
+            # Get intrinsics from COLOR stream (since depth is aligned to color)
             try:
                 color_profile = profile.get_stream(rs.stream.color).as_video_stream_profile()
                 self.depth_intrinsics = color_profile.get_intrinsics()
                 logger.info(f"Intrinsics 3D (aligned): {self.depth_intrinsics.width}x{self.depth_intrinsics.height}")
-
-                # Récupérer le depth scale réel
-                depth_sensor = device.first_depth_sensor()
-                self.depth_scale = depth_sensor.get_depth_scale()
-                logger.info(f"Depth scale: {self.depth_scale}")
-                self.log_panel.add_info(f"Depth scale: {self.depth_scale}")
-
-                self.log_panel.add_success("Mode 3D activé")
+                self.log_panel.add_success("3D mode enabled")
             except Exception as e:
-                logger.warning(f"Impossible d'obtenir les intrinsics: {e}")
+                logger.warning(f"Unable to get intrinsics: {e}")
                 self.depth_intrinsics = None
-                self.log_panel.add_warning("Mode 2D (pas de depth)")
+                self.log_panel.add_warning("2D mode (no depth)")
 
             was_paused = False
             frame_count = 0
 
             while not self.stop_capture.is_set():
-                # Gérer la pause pour le mode offline
+                # Handle pause for offline mode
                 if self.pause_event.is_set():
                     if not was_paused:
                         playback.pause()
@@ -843,39 +1251,39 @@ class REBAApp:
                         frame = np.asanyarray(color_frame.get_data())
                         frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
 
-                        # Passer le depth_frame pour calcul 3D
+                        # Pass depth_frame for 3D calculation
                         self._process_frame(frame, depth_frame)
                         frame_count += 1
 
-                        # Log périodique
+                        # Periodic log
                         if frame_count % 100 == 0:
                             logger.debug(f"Frame {frame_count} traité")
 
                 except RuntimeError:
-                    # Fin du fichier
-                    logger.info("Fin du fichier .bag")
-                    self.log_panel.add_info("Fin du fichier .bag")
+                    # End of file
+                    logger.info("End of .bag file")
+                    self.log_panel.add_info("End of .bag file")
                     break
 
             pipeline.stop()
             self.depth_intrinsics = None
 
         except ImportError:
-            logger.error("pyrealsense2 non installé")
-            self.log_panel.add_error("pyrealsense2 non installé")
+            logger.error("pyrealsense2 not installed")
+            self.log_panel.add_error("pyrealsense2 not installed")
         except Exception as e:
-            logger.exception(f"Erreur lecture: {e}")
-            self.log_panel.add_error(f"Erreur lecture: {str(e)[:30]}")
+            logger.exception(f"Read error: {e}")
+            self.log_panel.add_error(f"Read error: {str(e)[:30]}")
 
         self.capturing = False
         self.btn_capture.set_state(False)
 
     def _init_openpose(self) -> bool:
         """
-        Initialise OpenPose detector si mode local.
+        Initialize OpenPose detector if local mode.
 
         Returns:
-            True si initialisé avec succès, False sinon
+            True if initialized successfully, False otherwise
         """
         if self._openpose_initialized:
             return self.openpose_detector is not None
@@ -907,131 +1315,280 @@ class REBAApp:
 
     def _process_frame(self, frame, depth_frame=None) -> None:
         """
-        Traite un frame (détection OpenPose, calcul REBA 3D).
+        Process a frame (OpenPose detection, REBA 3D calculation).
 
         Args:
-            frame: Image BGR numpy array
-            depth_frame: RealSense depth frame aligné (optionnel)
+            frame: BGR numpy array image
+            depth_frame: Aligned RealSense depth frame (optional)
         """
         import cv2
 
-        # Stocker le depth frame et ses données pour les mesures de distance
-        self.current_depth_frame = depth_frame
-        if depth_frame is not None:
-            try:
-                # Stocker une copie des données depth à chaque frame
-                # pour que les données soient disponibles au moment de la pause
-                self._last_depth_data = np.asanyarray(depth_frame.get_data()).copy()
-            except Exception:
-                self._last_depth_data = None
+        # Increment frame counter
+        self.current_frame_number += 1
+
+        # Update timeline avec la frame actuelle
+        if self.risk_data:
+            self.risk_timeline.set_current_frame(self.current_frame_number)
 
         output_frame = frame.copy()
         keypoints = None
 
-        # Détection OpenPose si disponible
+        # OpenPose detection if available
         if OPENPOSE_MODE == "local":
-            # Initialiser OpenPose au premier appel
+            # Initialize OpenPose on first call
             if not self._openpose_initialized:
                 self._init_openpose()
 
-            # Exécuter la détection
+            # Run detection
             if self.openpose_detector is not None:
                 try:
                     output_frame, keypoints = self.openpose_detector.detect(frame)
                 except Exception as e:
                     logger.warning(f"Erreur détection: {e}")
 
-        # Traiter les keypoints si disponibles
+        # Process keypoints if available
         if keypoints is not None:
             try:
                 if len(keypoints) > 0 and len(keypoints.shape) >= 2:
                     person_keypoints = keypoints[0]
 
-                    # Calculer les angles (3D si depth disponible, sinon 2D)
-                    raw_angles = None
+                    # Accumulate 3D keypoints for JSON export
+                    if depth_frame is not None and self.depth_intrinsics is not None:
+                        import pyrealsense2 as rs
+                        person_kps = []
+                        for person in keypoints:
+                            joints = []
+                            for kp in person:
+                                x_px, y_px, conf = kp
+                                x_px, y_px = int(x_px), int(y_px)
+                                x_px = max(0, min(x_px, depth_frame.get_width() - 1))
+                                y_px = max(0, min(y_px, depth_frame.get_height() - 1))
+                                depth = depth_frame.get_distance(x_px, y_px)
+                                if depth > 0:
+                                    p3d = rs.rs2_deproject_pixel_to_point(
+                                        self.depth_intrinsics, [x_px, y_px], depth
+                                    )
+                                else:
+                                    p3d = [0, 0, 0]
+                                joints.append({
+                                    "x": float(p3d[0]),
+                                    "y": float(p3d[1]),
+                                    "z": float(p3d[2]),
+                                    "confidence": float(conf)
+                                })
+                            person_kps.append(joints)
+                        self.keypoints_3d_data.append({
+                            "frame": self.current_frame_number,
+                            "keypoints_3d": person_kps
+                        })
 
-                    if self.use_3d and depth_frame is not None and self.depth_intrinsics is not None:
-                        # Calcul 3D avec projection de profondeur
-                        raw_angles = calculate_angles_from_keypoints_3d(
-                            person_keypoints,
-                            depth_frame,
-                            self.depth_intrinsics
-                        )
-                        # Fallback 2D si pas assez d'angles 3D
-                        if len(raw_angles) < 4:
-                            raw_angles = calculate_angles_from_keypoints_2d(person_keypoints)
-                    else:
-                        # Calcul 2D classique
-                        raw_angles = calculate_angles_from_keypoints_2d(person_keypoints)
+                    # Calibration mode: collect angles
+                    if self.calibration_active:
+                        raw_angles = None
+                        raw_angles_2d = None
 
-                    if raw_angles:
-                        # Mode calibration: collecter les angles
-                        if self.calibration_active:
-                            self.calibration_angles.append(raw_angles)
+                        # Dual calibration mode: always calculate 2D and 3D if depth available
+                        if self.calibration_mode_dual:
+                            if depth_frame is not None and self.depth_intrinsics is not None:
+                                # 3D calculation
+                                raw_angles = calculate_nautical_angles_3d(
+                                    person_keypoints,
+                                    depth_frame,
+                                    self.depth_intrinsics
+                                )
+                                # 2D calculation in parallel
+                                raw_angles_2d = calculate_nautical_angles_2d(person_keypoints)
 
-                        # Mode normal: appliquer calibration et calculer REBA
-                        else:
-                            # Appliquer la calibration
-                            calibrated_angles = self.calibration_manager.apply_all(raw_angles)
-                            self.current_angles = calibrated_angles
-
-                            # Calculer le score REBA principal (3D si dispo)
-                            self.current_reba_score = self.reba_scorer.update(calibrated_angles)
-
-                            # Mode comparaison: calculer aussi le score 2D
-                            if self.show_comparison and depth_frame is not None:
-                                raw_angles_2d = calculate_angles_from_keypoints_2d(person_keypoints)
+                                if raw_angles:
+                                    self.calibration_angles.append(raw_angles)
                                 if raw_angles_2d:
-                                    calibrated_2d = self.calibration_manager.apply_all(raw_angles_2d)
+                                    self.calibration_angles_2d.append(raw_angles_2d)
+                        else:
+                            # No depth: 2D calibration only
+                            raw_angles = calculate_nautical_angles_2d(person_keypoints)
+
+                            if raw_angles:
+                                self.calibration_angles.append(raw_angles)
+
+                    # Normal mode: calculate REBA scores
+                    else:
+                        # Comparison mode: ALWAYS calculate both scores (2D and 3D)
+                        if self.show_comparison:
+                            if depth_frame is not None and self.depth_intrinsics is not None:
+                                # Calculate 3D angles
+                                raw_angles_3d = calculate_nautical_angles_3d(
+                                    person_keypoints,
+                                    depth_frame,
+                                    self.depth_intrinsics
+                                )
+                                # Calculate 2D angles
+                                raw_angles_2d = calculate_nautical_angles_2d(person_keypoints)
+
+                                # Assurer que le calibration_manager a la calibration 3D chargée
+                                if self.current_mode_3d != True:
+                                    self.current_mode_3d = True
+                                    from pathlib import Path
+                                    from reba_3d.config.calibration_store import get_calibration_path
+                                    calibration_path_3d = get_calibration_path(mode_3d=True)
+                                    if calibration_path_3d.exists():
+                                        self.calibration_manager.reload(path=calibration_path_3d, mode_3d=True)
+                                        logger.info(f"Calibration 3D chargée: {calibration_path_3d.name}")
+
+                                # Score 3D
+                                if raw_angles_3d:
+                                    calibrated_3d = self.calibration_manager.apply_nested(raw_angles_3d)
+                                    self.current_angles = calibrated_3d
+                                    self.current_reba_score = self.reba_scorer.update(calibrated_3d)
+                                    # Log 3D angles if enabled
+                                    if self.angle_logging_enabled and self.angle_logger.is_recording():
+                                        self.angle_logger.log_frame(calibrated_3d, mode="3d")
+                                else:
+                                    self.current_reba_score = None
+
+                                # Score 2D
+                                if raw_angles_2d:
+                                    calibrated_2d = self._apply_calibration_2d(raw_angles_2d)
                                     self.current_reba_score_2d = self.reba_scorer_2d.update(calibrated_2d)
+                                    # Log 2D angles if enabled
+                                    if self.angle_logging_enabled and self.angle_logger.is_recording():
+                                        self.angle_logger.log_frame(calibrated_2d, mode="2d")
+                                    # Debug: log les offsets utilisés (première fois uniquement)
+                                    if not hasattr(self, '_logged_2d_offsets'):
+                                        logger.debug(f"Offsets 2D actifs: {self.calibration_offsets_2d.get('neck', {})}")
+                                        logger.debug(f"Offsets 3D actifs: {self.calibration_manager._offsets.get('neck', {})}")
+                                        self._logged_2d_offsets = True
+                                else:
+                                    self.current_reba_score_2d = None
 
-                            # Mettre à jour le graphique des scores
-                            score_3d = self.current_reba_score.final_score if self.current_reba_score else None
-                            score_2d = self.current_reba_score_2d.final_score if self.current_reba_score_2d else None
-                            self.score_graph.add_scores(score_3d, score_2d)
+                            else:
+                                # No depth: 2D only
+                                raw_angles_2d = calculate_nautical_angles_2d(person_keypoints)
+                                if raw_angles_2d:
+                                    calibrated_2d = self._apply_calibration_2d(raw_angles_2d)
+                                    self.current_reba_score_2d = self.reba_scorer_2d.update(calibrated_2d)
+                                    self.current_angles = calibrated_2d
+                                    # Log 2D angles if enabled
+                                    if self.angle_logging_enabled and self.angle_logger.is_recording():
+                                        self.angle_logger.log_frame(calibrated_2d, mode="2d")
+                                else:
+                                    self.current_reba_score_2d = None
+                                # No 3D score
+                                self.current_reba_score = None
 
-                            # Dessiner le score sur la frame si activé
-                            if self.show_scores and self.current_reba_score:
-                                output_frame = self._draw_reba_overlay(output_frame)
+                        # Normal mode (no comparison): calculate according to use_3d
+                        else:
+                            raw_angles = None
+                            mode_3d = self.use_3d and depth_frame is not None and self.depth_intrinsics is not None
+
+                            if mode_3d:
+                                # 3D calculation
+                                raw_angles = calculate_nautical_angles_3d(
+                                    person_keypoints,
+                                    depth_frame,
+                                    self.depth_intrinsics
+                                )
+                            else:
+                                # 2D calculation
+                                raw_angles = calculate_nautical_angles_2d(person_keypoints)
+
+                            if raw_angles:
+                                # Reload appropriate calibration if mode changed
+                                if mode_3d != self.current_mode_3d:
+                                    self.current_mode_3d = mode_3d
+                                    mode_str = "3D" if mode_3d else "2D"
+                                    logger.info(f"Mode changé: passage en {mode_str}, rechargement calibration...")
+
+                                    from pathlib import Path
+                                    from reba_3d.config.calibration_store import get_calibration_path
+
+                                    calibration_path = get_calibration_path(mode_3d=mode_3d)
+                                    if calibration_path.exists():
+                                        self.calibration_manager.reload(path=calibration_path, mode_3d=mode_3d)
+                                        logger.info(f"Calibration {mode_str} chargée: {calibration_path.name}")
+                                    else:
+                                        logger.warning(f"Fichier calibration {mode_str} introuvable: {calibration_path.name}")
+                                        logger.warning("Utilisation des valeurs par défaut")
+
+                                # Apply calibration
+                                calibrated_angles = self.calibration_manager.apply_nested(raw_angles)
+                                self.current_angles = calibrated_angles
+                                self.current_reba_score = self.reba_scorer.update(calibrated_angles)
+
+                                # Log angles if enabled
+                                if self.angle_logging_enabled and self.angle_logger.is_recording():
+                                    log_mode = "3d" if mode_3d else "2d"
+                                    self.angle_logger.log_frame(calibrated_angles, mode=log_mode)
+                            else:
+                                self.current_reba_score = None
+
+                        # Update score graph
+                        score_3d = self.current_reba_score.final_score if self.current_reba_score else None
+                        score_2d = self.current_reba_score_2d.final_score if self.current_reba_score_2d else None
+                        self.score_graph.add_scores(score_3d, score_2d)
+
+                        # Save skeleton frame (before REBA overlay) for video export
+                        if self.angle_logging_enabled and self.angle_logger.is_recording():
+                            video_frame = output_frame.copy()
+                            csv_frame_num = self.angle_logger._frame_count
+                            cv2.putText(
+                                video_frame,
+                                f"Frame: {csv_frame_num}",
+                                (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1.0,
+                                (0, 255, 255), 2, cv2.LINE_AA,
+                            )
+                            h, w = video_frame.shape[:2]
+                            if self.video_writer is None:
+                                from datetime import datetime as _dt
+                                ts = _dt.now().strftime("%Y%m%d_%H%M%S")
+                                video_path = self.angle_logger.output_dir / f"skeleton_{self.angle_logger.mode}_{ts}.avi"
+                                self.video_writer = VideoWriter(
+                                    str(video_path), fps=LOG_ANGLES_FPS, resolution=(w, h)
+                                )
+                                logger.info(f"Skeleton video started: {video_path}")
+                            self.video_writer.write(video_frame)
+
+                        # Draw score on frame if enabled (GUI display only)
+                        if self.show_scores and (self.current_reba_score or self.current_reba_score_2d):
+                            output_frame = self._draw_reba_overlay(output_frame)
 
             except Exception as e:
                 logger.debug(f"Erreur traitement keypoints: {e}")
 
-        # Afficher le frame (avec ou sans overlay)
+        # Display frame (with or without overlay)
         with self.frame_lock:
             self.current_frame = output_frame.copy()
 
     def _draw_reba_overlay(self, frame) -> np.ndarray:
         """
-        Dessine l'overlay REBA sur le frame.
+        Draw REBA overlay on frame.
 
         Args:
-            frame: Image BGR
+            frame: BGR image
 
         Returns:
-            Frame avec overlay
+            Frame with overlay
         """
         import cv2
 
+        # Comparison mode: side by side 2D/3D display
+        if self.show_comparison and (self.current_reba_score_2d is not None or self.current_reba_score is not None):
+            return self._draw_comparison_overlay(frame)
+
+        # Normal mode: display only main score
         if self.current_reba_score is None:
             return frame
 
         score = self.current_reba_score
-        h, w = frame.shape[:2]
 
-        # Mode comparaison: affichage côte à côte 2D/3D
-        if self.show_comparison and self.current_reba_score_2d is not None:
-            return self._draw_comparison_overlay(frame)
-
-        # Couleur de fond basée sur le risque
+        # Background color based on risk
         color = score.risk_color
 
-        # Rectangle de fond semi-transparent
+        # Semi-transparent background rectangle
         overlay = frame.copy()
         cv2.rectangle(overlay, (10, 10), (200, 145), (0, 0, 0), -1)
         cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
 
-        # Indicateur 2D/3D
+        # 2D/3D indicator
         mode_3d = self.use_3d and self.depth_intrinsics is not None
         mode_text = "3D" if mode_3d else "2D"
         mode_color = (0, 255, 0) if mode_3d else (100, 100, 255)
@@ -1040,26 +1597,26 @@ class REBAApp:
             (160, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.5, mode_color, 1
         )
 
-        # Texte du score REBA
+        # REBA score text
         cv2.putText(
             frame, f"REBA: {score.final_score}",
             (20, 45), cv2.FONT_HERSHEY_SIMPLEX, 1.0, color, 2
         )
 
-        # Niveau de risque
+        # Risk level
         cv2.putText(
             frame, f"{score.risk_level.upper()}",
             (20, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2
         )
 
-        # Détail des scores (optionnel)
+        # Score details (optional)
         detail = f"A:{score.score_a} B:{score.score_b}"
         cv2.putText(
             frame, detail,
             (20, 110), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1
         )
 
-        # Barre de couleur indicateur de risque
+        # Risk indicator color bar
         bar_width = int((score.final_score / 12) * 180)
         cv2.rectangle(frame, (10, 125), (10 + bar_width, 135), color, -1)
         cv2.rectangle(frame, (10, 125), (190, 135), (100, 100, 100), 1)
@@ -1068,72 +1625,90 @@ class REBAApp:
 
     def _draw_comparison_overlay(self, frame) -> np.ndarray:
         """
-        Dessine l'overlay comparaison 2D vs 3D sur le frame.
+        Draw 2D vs 3D comparison overlay on frame.
 
         Args:
-            frame: Image BGR
+            frame: BGR image
 
         Returns:
-            Frame avec overlay comparaison
+            Frame with comparison overlay
         """
         import cv2
 
         score_3d = self.current_reba_score
         score_2d = self.current_reba_score_2d
 
-        # Rectangle de fond semi-transparent plus large
+        # Larger semi-transparent background rectangle
         overlay = frame.copy()
         cv2.rectangle(overlay, (10, 10), (320, 160), (0, 0, 0), -1)
         cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
 
-        # Titre
+        # Title
         cv2.putText(
-            frame, "COMPARAISON 2D vs 3D",
+            frame, "2D vs 3D COMPARISON",
             (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1
         )
 
-        # Score 3D (colonne gauche)
+        # 3D Score (left column)
         cv2.putText(
             frame, "3D",
             (50, 55), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2
         )
-        cv2.putText(
-            frame, f"REBA: {score_3d.final_score}",
-            (20, 85), cv2.FONT_HERSHEY_SIMPLEX, 0.8, score_3d.risk_color, 2
-        )
-        cv2.putText(
-            frame, f"{score_3d.risk_level[:10]}",
-            (20, 110), cv2.FONT_HERSHEY_SIMPLEX, 0.5, score_3d.risk_color, 1
-        )
+        if score_3d is not None:
+            cv2.putText(
+                frame, f"REBA: {score_3d.final_score}",
+                (20, 85), cv2.FONT_HERSHEY_SIMPLEX, 0.8, score_3d.risk_color, 2
+            )
+            cv2.putText(
+                frame, f"{score_3d.risk_level[:10]}",
+                (20, 110), cv2.FONT_HERSHEY_SIMPLEX, 0.5, score_3d.risk_color, 1
+            )
+            # 3D bar
+            bar_3d = int((score_3d.final_score / 12) * 130)
+            cv2.rectangle(frame, (20, 120), (20 + bar_3d, 130), score_3d.risk_color, -1)
+            cv2.rectangle(frame, (20, 120), (150, 130), (100, 100, 100), 1)
+        else:
+            cv2.putText(
+                frame, "N/A",
+                (20, 85), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (100, 100, 100), 2
+            )
+            cv2.putText(
+                frame, "(pas de profondeur)",
+                (20, 110), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (100, 100, 100), 1
+            )
 
-        # Barre 3D
-        bar_3d = int((score_3d.final_score / 12) * 130)
-        cv2.rectangle(frame, (20, 120), (20 + bar_3d, 130), score_3d.risk_color, -1)
-        cv2.rectangle(frame, (20, 120), (150, 130), (100, 100, 100), 1)
-
-        # Score 2D (colonne droite)
+        # 2D Score (right column)
         cv2.putText(
             frame, "2D",
             (210, 55), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (100, 100, 255), 2
         )
-        cv2.putText(
-            frame, f"REBA: {score_2d.final_score}",
-            (170, 85), cv2.FONT_HERSHEY_SIMPLEX, 0.8, score_2d.risk_color, 2
-        )
-        cv2.putText(
-            frame, f"{score_2d.risk_level[:10]}",
-            (170, 110), cv2.FONT_HERSHEY_SIMPLEX, 0.5, score_2d.risk_color, 1
-        )
+        if score_2d is not None:
+            cv2.putText(
+                frame, f"REBA: {score_2d.final_score}",
+                (170, 85), cv2.FONT_HERSHEY_SIMPLEX, 0.8, score_2d.risk_color, 2
+            )
+            cv2.putText(
+                frame, f"{score_2d.risk_level[:10]}",
+                (170, 110), cv2.FONT_HERSHEY_SIMPLEX, 0.5, score_2d.risk_color, 1
+            )
+            # 2D bar
+            bar_2d = int((score_2d.final_score / 12) * 130)
+            cv2.rectangle(frame, (170, 120), (170 + bar_2d, 130), score_2d.risk_color, -1)
+            cv2.rectangle(frame, (170, 120), (300, 130), (100, 100, 100), 1)
+        else:
+            cv2.putText(
+                frame, "N/A",
+                (170, 85), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (100, 100, 100), 2
+            )
 
-        # Barre 2D
-        bar_2d = int((score_2d.final_score / 12) * 130)
-        cv2.rectangle(frame, (170, 120), (170 + bar_2d, 130), score_2d.risk_color, -1)
-        cv2.rectangle(frame, (170, 120), (300, 130), (100, 100, 100), 1)
-
-        # Différence
-        diff = score_3d.final_score - score_2d.final_score
-        diff_text = f"Diff: {diff:+d}"
-        diff_color = (0, 255, 255) if diff != 0 else (200, 200, 200)
+        # Difference (only if both scores exist)
+        if score_3d is not None and score_2d is not None:
+            diff =  score_2d.final_score - score_3d.final_score
+            diff_text = f"Diff: {diff:+d}"
+            diff_color = (0, 255, 255) if diff != 0 else (200, 200, 200)
+        else:
+            diff_text = "Diff: N/A"
+            diff_color = (100, 100, 100)
         cv2.putText(
             frame, diff_text,
             (120, 150), cv2.FONT_HERSHEY_SIMPLEX, 0.6, diff_color, 1
@@ -1142,7 +1717,7 @@ class REBAApp:
         return frame
 
     def _handle_events(self) -> None:
-        """Gère les événements Pygame."""
+        """Handle Pygame events."""
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.running = False
@@ -1151,179 +1726,102 @@ class REBAApp:
                 if event.key == pygame.K_ESCAPE:
                     self.running = False
                 elif event.key == pygame.K_SPACE:
-                    # Toggle capture avec espace
+                    # Toggle capture with space
                     self.btn_capture.toggle()
                     self._on_capture_toggle(self.btn_capture.state)
                 elif event.key == pygame.K_p:
-                    # Toggle pause avec P
+                    # Toggle pause with P
                     if self.capturing:
                         self.btn_pause.toggle()
                         self._on_pause_toggle(self.btn_pause.state)
 
-            elif event.type == pygame.MOUSEBUTTONDOWN:
-                if event.button == 1:  # Clic gauche = point 1
-                    self._handle_measure_click(event.pos, point_index=0)
-                elif event.button == 3:  # Clic droit = point 2
-                    self._handle_measure_click(event.pos, point_index=1)
-
-            # Propager aux composants
+            # Propagate to components
             self.mode_selector.handle_event(event)
             self.btn_capture.handle_event(event)
             self.btn_pause.handle_event(event)
             self.btn_calibration.handle_event(event)
             self.btn_scores.handle_event(event)
             self.btn_comparison.handle_event(event)
-            self.btn_measure.handle_event(event)
+            self.btn_load_keypoints.handle_event(event)
+            self.btn_log_angles.handle_event(event)  # Désactivé
             self.score_load.handle_event(event)
             self.score_coupling.handle_event(event)
             self.score_activity.handle_event(event)
             self.btn_exit.handle_event(event)
 
     def _update(self) -> None:
-        """Met à jour l'état de l'application."""
-        # Mettre à jour l'affichage vidéo
+        """Update application state."""
+        # Update video display
         with self.frame_lock:
-            # Déterminer quel frame afficher
-            display_frame = None
+            # In inline pause mode, display frozen frame
             if self.paused and self.mode == "inline" and self.frozen_frame is not None:
-                display_frame = self.frozen_frame.copy()
+                self.video_display.set_frame(self.frozen_frame)
             elif self.current_frame is not None:
-                display_frame = self.current_frame.copy()
-
-            # Ajouter l'overlay de mesure si nécessaire
-            if display_frame is not None and (self.measure_mode or self.measure_points):
-                display_frame = self._draw_measure_overlay(display_frame)
-
-            if display_frame is not None:
-                self.video_display.set_frame(display_frame)
-
-    def _draw_measure_overlay(self, frame) -> np.ndarray:
-        """
-        Dessine l'overlay de mesure de distance sur le frame.
-
-        Args:
-            frame: Image BGR
-
-        Returns:
-            Frame avec overlay de mesure
-        """
-        import cv2
-
-        # Dessiner les points cliqués
-        for i, point in enumerate(self.measure_points):
-            if point is None:
-                continue
-            px, py = point
-            # Cercle du point
-            color = (0, 255, 255) if i == 0 else (255, 0, 255)  # Jaune puis magenta
-            cv2.circle(frame, (px, py), 8, color, -1)
-            cv2.circle(frame, (px, py), 10, (255, 255, 255), 2)
-
-            # Numéro du point
-            label = "1 (G)" if i == 0 else "2 (D)"
-            cv2.putText(
-                frame, label,
-                (px + 15, py + 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2
-            )
-
-        # Dessiner la ligne entre les points
-        if (len(self.measure_points) >= 2 and
-            self.measure_points[0] is not None and
-            self.measure_points[1] is not None):
-            p1 = self.measure_points[0]
-            p2 = self.measure_points[1]
-            cv2.line(frame, p1, p2, (0, 255, 0), 2)
-
-            # Afficher la distance au milieu de la ligne
-            if self.measure_distance is not None:
-                mid_x = (p1[0] + p2[0]) // 2
-                mid_y = (p1[1] + p2[1]) // 2
-
-                distance_cm = self.measure_distance * 100
-                text = f"{distance_cm:.1f} cm"
-
-                # Fond pour le texte
-                (text_w, text_h), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)
-                cv2.rectangle(
-                    frame,
-                    (mid_x - text_w // 2 - 5, mid_y - text_h - 10),
-                    (mid_x + text_w // 2 + 5, mid_y + 5),
-                    (0, 0, 0), -1
-                )
-                cv2.putText(
-                    frame, text,
-                    (mid_x - text_w // 2, mid_y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2
-                )
-
-        # Instructions si en mode mesure
-        if self.measure_mode:
-            text = "Gauche=Pt1  Droit=Pt2"
-            cv2.putText(
-                frame, text,
-                (10, frame.shape[0] - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2
-            )
-
-        return frame
+                self.video_display.set_frame(self.current_frame)
 
     def _draw(self) -> None:
-        """Dessine l'interface."""
-        # Fond
+        """Draw the interface."""
+        # Background
         self.screen.fill(DARK_GRAY)
 
-        # Hauteur de la zone principale (sans graphique)
+        # Main area height (without graph)
         main_height = self.height - GRAPH_HEIGHT
 
-        # Panneau gauche (fond)
+        # Left panel (background)
         pygame.draw.rect(
             self.screen,
             (40, 40, 50),
             pygame.Rect(0, 0, self.left_panel_width, main_height)
         )
 
-        # Titre panneau gauche
-        title = self.title_font.render("Contrôles", True, WHITE)
+        # Left panel title
+        title = self.title_font.render("Controls", True, WHITE)
         self.screen.blit(title, (10, 10))
 
         # Mode label
         mode_label = pygame.font.Font(None, 18).render("Mode:", True, GRAY)
         self.screen.blit(mode_label, (10, 45))
 
-        # Composants
+        # Components
         self.mode_selector.draw(self.screen)
         self.btn_capture.draw(self.screen)
         self.btn_pause.draw(self.screen)
         self.btn_calibration.draw(self.screen)
         self.btn_scores.draw(self.screen)
         self.btn_comparison.draw(self.screen)
-        self.btn_measure.draw(self.screen)
+        self.btn_load_keypoints.draw(self.screen)
+        self.btn_log_angles.draw(self.screen)  # Désactivé
 
-        # Label section paramètres
+        # Parameters section label
         params_font = pygame.font.Font(None, 18)
-        params_label = params_font.render("Paramètres REBA:", True, GRAY)
+        params_label = params_font.render("REBA Parameters:", True, GRAY)
         self.screen.blit(params_label, (10, self.params_label_y))
 
-        # Boutons de score
+        # Score buttons
         self.score_load.draw(self.screen)
         self.score_coupling.draw(self.screen)
         self.score_activity.draw(self.screen)
 
         self.btn_exit.draw(self.screen)
 
-        # Zone vidéo
+        # Video area
         self.video_display.draw(self.screen)
 
-        # Panneau logs
+        # Log panel
         self.log_panel.draw(self.screen)
 
-        # Graphique des scores (en bas)
+        # Risk timeline
+        self.risk_timeline.draw(self.screen)
+
+        # Score graph (at bottom)
         self.score_graph.draw(self.screen)
 
-        # Rafraîchir l'écran
+        # Refresh screen
         pygame.display.flip()
 
     def run(self) -> None:
-        """Boucle principale de l'application."""
-        logger.info("Démarrage de la boucle principale")
+        """Main application loop."""
+        logger.info("Starting main loop")
         self.running = True
 
         while self.running:
@@ -1332,18 +1830,18 @@ class REBAApp:
             self._draw()
             self.clock.tick(self.fps)
 
-        # Nettoyage
-        logger.debug("Arrêt de l'application...")
+        # Cleanup
+        logger.debug("Stopping application...")
         self._stop_capture()
         if self.capture_thread and self.capture_thread.is_alive():
             self.capture_thread.join(timeout=2.0)
 
         pygame.quit()
-        logger.info("Application fermée")
+        logger.info("Application closed")
 
 
 def main():
-    """Point d'entrée pour l'interface graphique."""
+    """Entry point for the graphical interface."""
     from reba_3d.utils.logger import setup_logging
     setup_logging()
 

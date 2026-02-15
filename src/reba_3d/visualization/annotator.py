@@ -18,21 +18,21 @@ class VideoAnnotator:
     Annotates video frames with REBA risk information.
 
     Attributes:
-        risk_times: Dictionary mapping risk labels to time intervals
-        fps: Video frames per second
+        risk_times: Dictionary mapping risk labels to frame intervals
+        fps: Video frames per second (used for time display only)
     """
 
     def __init__(
         self,
-        risk_times: Dict[str, List[Tuple[float, float]]],
+        risk_times: Dict[str, List[List[int]]],
         fps: float = 15.0
     ):
         """
         Initialize video annotator.
 
         Args:
-            risk_times: Dictionary mapping risk labels to (start, end) intervals
-            fps: Video frames per second (default: 15.0)
+            risk_times: Dictionary mapping risk labels to [start_frame, end_frame] intervals
+            fps: Video frames per second (default: 15.0), used for time display
         """
         self.risk_times = risk_times
         self.fps = fps
@@ -43,10 +43,9 @@ class VideoAnnotator:
         frame_to_label = {}
 
         for label, intervals in self.risk_times.items():
-            for start_s, end_s in intervals:
-                start_frame = int(start_s * self.fps)
-                end_frame = int(end_s * self.fps)
-                for frame_num in range(start_frame, end_frame):
+            for start_frame, end_frame in intervals:
+                # Intervals are now in frames directly (no FPS conversion needed)
+                for frame_num in range(start_frame, end_frame + 1):
                     frame_to_label[frame_num] = label
 
         return frame_to_label

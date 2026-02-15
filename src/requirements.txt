@@ -14,6 +14,7 @@ pyrealsense2>=2.50.0
 
 # OpenPose Python bindings (requires manual installation)
 # pyopenpose
+#modify all path: "/home/USER/openpose"
 
 # Video processing
 # ffmpeg-python>=0.2.0

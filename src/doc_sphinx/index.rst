@@ -32,7 +32,7 @@ Niveaux de risque
 +-------------+-------------------+------------------------+
 | 7-10        | Élevé             | Investigation urgente  |
 +-------------+-------------------+------------------------+
-| 11-12       | Très élevé        | Action immédiate       |
+| 11-12       | very high risk        | Action immédiate       |
 +-------------+-------------------+------------------------+
 
 Installation rapide

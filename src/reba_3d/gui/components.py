@@ -7,7 +7,7 @@ Provides button, toggle, and log panel components using pygame.
 import pygame
 from typing import Callable, Optional, List, Tuple
 
-# Couleurs
+# Colors
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
 GRAY = (128, 128, 128)
@@ -22,7 +22,7 @@ ORANGE = (255, 150, 0)
 
 class Button:
     """
-    Bouton cliquable avec texte.
+    Clickable button with text.
     """
 
     def __init__(
@@ -39,17 +39,17 @@ class Button:
         font_size: int = 20
     ):
         """
-        Initialise un bouton.
+        Initialize a button.
 
         Args:
-            x, y: Position du bouton
+            x, y: Button position
             width, height: Dimensions
-            text: Texte affiché
-            callback: Fonction appelée au clic
-            color: Couleur de fond
-            hover_color: Couleur au survol
-            text_color: Couleur du texte
-            font_size: Taille de la police
+            text: Displayed text
+            callback: Function called on click
+            color: Background color
+            hover_color: Hover color
+            text_color: Text color
+            font_size: Font size
         """
         self.rect = pygame.Rect(x, y, width, height)
         self.text = text
@@ -62,7 +62,7 @@ class Button:
         self.enabled = True
 
     def draw(self, surface: pygame.Surface) -> None:
-        """Dessine le bouton sur la surface."""
+        """Draw the button on the surface."""
         if not self.enabled:
             color = GRAY
         elif self.hovered:
@@ -79,10 +79,10 @@ class Button:
 
     def handle_event(self, event: pygame.event.Event) -> bool:
         """
-        Gère les événements pour ce bouton.
+        Handle events for this button.
 
         Returns:
-            True si le bouton a été cliqué
+            True if the button was clicked
         """
         if not self.enabled:
             return False
@@ -99,13 +99,13 @@ class Button:
         return False
 
     def set_text(self, text: str) -> None:
-        """Change le texte du bouton."""
+        """Change the button text."""
         self.text = text
 
 
 class ToggleButton(Button):
     """
-    Bouton avec état on/off.
+    Button with on/off state.
     """
 
     def __init__(
@@ -123,14 +123,14 @@ class ToggleButton(Button):
         **kwargs
     ):
         """
-        Initialise un bouton toggle.
+        Initialize a toggle button.
 
         Args:
-            text_on: Texte quand activé
-            text_off: Texte quand désactivé
-            color_on: Couleur quand activé
-            color_off: Couleur quand désactivé
-            initial_state: État initial
+            text_on: Text when active
+            text_off: Text when inactive
+            color_on: Color when active
+            color_off: Color when inactive
+            initial_state: Initial state
         """
         super().__init__(x, y, width, height, text_off, callback, color_off, **kwargs)
         self.text_on = text_on
@@ -141,7 +141,7 @@ class ToggleButton(Button):
         self._update_appearance()
 
     def _update_appearance(self) -> None:
-        """Met à jour l'apparence selon l'état."""
+        """Update appearance based on state."""
         if self.state:
             self.text = self.text_on
             self.color = self.color_on
@@ -152,17 +152,17 @@ class ToggleButton(Button):
             self.hover_color = (255, 50, 50)
 
     def toggle(self) -> None:
-        """Inverse l'état du bouton."""
+        """Toggle the button state."""
         self.state = not self.state
         self._update_appearance()
 
     def set_state(self, state: bool) -> None:
-        """Définit l'état du bouton."""
+        """Set the button state."""
         self.state = state
         self._update_appearance()
 
     def handle_event(self, event: pygame.event.Event) -> bool:
-        """Gère les événements avec toggle automatique."""
+        """Handle events with automatic toggle."""
         if not self.enabled:
             return False
 
@@ -181,7 +181,7 @@ class ToggleButton(Button):
 
 class RadioButtonGroup:
     """
-    Groupe de boutons radio (un seul sélectionné à la fois).
+    Radio button group (only one selected at a time).
     """
 
     def __init__(
@@ -197,11 +197,11 @@ class RadioButtonGroup:
         unselected_color: Tuple[int, int, int] = DARK_GRAY
     ):
         """
-        Initialise un groupe de boutons radio.
+        Initialize a radio button group.
 
         Args:
-            options: Liste des options
-            callback: Fonction appelée avec l'option sélectionnée
+            options: List of options
+            callback: Function called with the selected option
         """
         self.options = options
         self.callback = callback
@@ -222,7 +222,7 @@ class RadioButtonGroup:
             self.buttons.append(btn)
 
     def _select(self, index: int) -> None:
-        """Sélectionne une option."""
+        """Select an option."""
         self.selected_index = index
         for i, btn in enumerate(self.buttons):
             btn.color = self.selected_color if i == index else self.unselected_color
@@ -230,16 +230,16 @@ class RadioButtonGroup:
             self.callback(self.options[index])
 
     def get_selected(self) -> str:
-        """Retourne l'option sélectionnée."""
+        """Return the selected option."""
         return self.options[self.selected_index]
 
     def draw(self, surface: pygame.Surface) -> None:
-        """Dessine tous les boutons."""
+        """Draw all buttons."""
         for btn in self.buttons:
             btn.draw(surface)
 
     def handle_event(self, event: pygame.event.Event) -> bool:
-        """Gère les événements pour tous les boutons."""
+        """Handle events for all buttons."""
         for btn in self.buttons:
             if btn.handle_event(event):
                 return True
@@ -248,7 +248,7 @@ class RadioButtonGroup:
 
 class LogPanel:
     """
-    Panneau d'affichage des logs.
+    Log display panel.
     """
 
     def __init__(
@@ -263,12 +263,12 @@ class LogPanel:
         text_color: Tuple[int, int, int] = WHITE
     ):
         """
-        Initialise le panneau de logs.
+        Initialize the log panel.
 
         Args:
             x, y: Position
             width, height: Dimensions
-            max_lines: Nombre maximum de lignes affichées
+            max_lines: Maximum number of lines displayed
         """
         self.rect = pygame.Rect(x, y, width, height)
         self.max_lines = max_lines
@@ -280,11 +280,11 @@ class LogPanel:
 
     def add_log(self, message: str, color: Optional[Tuple[int, int, int]] = None) -> None:
         """
-        Ajoute un message au log.
+        Add a message to the log.
 
         Args:
-            message: Message à afficher
-            color: Couleur du message (optionnel)
+            message: Message to display
+            color: Message color (optional)
         """
         if color is None:
             color = self.text_color
@@ -293,32 +293,32 @@ class LogPanel:
             self.logs.pop(0)
 
     def add_info(self, message: str) -> None:
-        """Ajoute un message d'information (blanc)."""
+        """Add an info message (white)."""
         self.add_log(f"[INFO] {message}", WHITE)
 
     def add_success(self, message: str) -> None:
-        """Ajoute un message de succès (vert)."""
+        """Add a success message (green)."""
         self.add_log(f"[OK] {message}", GREEN)
 
     def add_warning(self, message: str) -> None:
-        """Ajoute un avertissement (jaune)."""
+        """Add a warning (yellow)."""
         self.add_log(f"[WARN] {message}", YELLOW)
 
     def add_error(self, message: str) -> None:
-        """Ajoute une erreur (rouge)."""
+        """Add an error (red)."""
         self.add_log(f"[ERR] {message}", RED)
 
     def clear(self) -> None:
-        """Efface tous les logs."""
+        """Clear all logs."""
         self.logs.clear()
 
     def draw(self, surface: pygame.Surface) -> None:
-        """Dessine le panneau de logs."""
-        # Fond
+        """Draw the log panel."""
+        # Background
         pygame.draw.rect(surface, self.bg_color, self.rect)
         pygame.draw.rect(surface, GRAY, self.rect, 2)
 
-        # Titre
+        # Title
         title_font = pygame.font.Font(None, 20)
         title = title_font.render("LOGS", True, LIGHT_GRAY)
         surface.blit(title, (self.rect.x + 10, self.rect.y + 5))
@@ -329,9 +329,9 @@ class LogPanel:
             if y_offset + self.line_height > self.rect.height:
                 break
             text = self.font.render(message, True, color)
-            # Tronquer si trop long
+            # Truncate if too long
             if text.get_width() > self.rect.width - 20:
-                # Approximation du texte tronqué
+                # Approximate truncated text
                 chars = int((self.rect.width - 30) / (text.get_width() / len(message)))
                 text = self.font.render(message[:chars] + "...", True, color)
             surface.blit(text, (self.rect.x + 10, self.rect.y + y_offset))
@@ -340,7 +340,7 @@ class LogPanel:
 
 class VideoDisplay:
     """
-    Zone d'affichage vidéo.
+    Video display area.
     """
 
     def __init__(
@@ -352,7 +352,7 @@ class VideoDisplay:
         bg_color: Tuple[int, int, int] = BLACK
     ):
         """
-        Initialise la zone d'affichage vidéo.
+        Initialize the video display area.
         """
         self.rect = pygame.Rect(x, y, width, height)
         self.bg_color = bg_color
@@ -366,21 +366,21 @@ class VideoDisplay:
 
     def set_frame(self, frame) -> None:
         """
-        Définit le frame à afficher.
+        Set the frame to display.
 
         Args:
-            frame: Image numpy BGR (OpenCV format)
+            frame: Numpy BGR image (OpenCV format)
         """
         if frame is not None:
             import cv2
-            # Convertir BGR -> RGB
+            # Convert BGR -> RGB
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            # Redimensionner pour tenir dans la zone
+            # Resize to fit the display area
             h, w = frame_rgb.shape[:2]
             scale = min(self.rect.width / w, self.rect.height / h)
             new_w, new_h = int(w * scale), int(h * scale)
             frame_resized = cv2.resize(frame_rgb, (new_w, new_h))
-            # Convertir en surface pygame
+            # Convert to a pygame surface
             self.current_frame = pygame.surfarray.make_surface(
                 frame_resized.swapaxes(0, 1)
             )
@@ -388,47 +388,47 @@ class VideoDisplay:
             self.current_frame = None
 
     def set_scores(self, scores_2d: dict = None, scores_3d: dict = None) -> None:
-        """Définit les scores à afficher."""
+        """Set the scores to display."""
         if scores_2d is not None:
             self.scores_2d = scores_2d
         if scores_3d is not None:
             self.scores_3d = scores_3d
 
     def set_risk_label(self, label: str) -> None:
-        """Définit le label de risque."""
+        """Set the risk label."""
         self.risk_label = label
 
     def draw(self, surface: pygame.Surface) -> None:
-        """Dessine la zone vidéo."""
-        # Fond
+        """Draw the video display area."""
+        # Background
         pygame.draw.rect(surface, self.bg_color, self.rect)
 
         if self.current_frame is not None:
-            # Centrer le frame
+            # Center the frame
             frame_rect = self.current_frame.get_rect()
             frame_rect.center = self.rect.center
             surface.blit(self.current_frame, frame_rect)
 
-            # Afficher les scores si activé
+            # Show scores overlay if enabled
             if self.overlay_scores:
                 self._draw_scores(surface)
         else:
-            # Message "pas de vidéo"
-            text = self.font.render("Pas de video", True, GRAY)
+            # "No video" message
+            text = self.font.render("No video", True, GRAY)
             text_rect = text.get_rect(center=self.rect.center)
             surface.blit(text, text_rect)
 
-        # Bordure
+        # Border
         pygame.draw.rect(surface, GRAY, self.rect, 2)
 
     def _draw_scores(self, surface: pygame.Surface) -> None:
-        """Dessine les scores en overlay."""
+        """Draw the scores overlay."""
         y_offset = self.rect.y + 10
 
         # Risk label
         if self.risk_label:
             color = self._get_risk_color(self.risk_label)
-            # Fond semi-transparent pour le label
+            # Semi-transparent background for the label (solid black here)
             label_rect = pygame.Rect(self.rect.x + 10, y_offset - 2, 200, 25)
             pygame.draw.rect(surface, (0, 0, 0), label_rect)
             pygame.draw.rect(surface, color, label_rect, 2)
@@ -436,7 +436,7 @@ class VideoDisplay:
             surface.blit(text, (self.rect.x + 15, y_offset))
             y_offset += 30
 
-        # Scores 3D
+        # 3D scores
         if self.scores_3d:
             for name, value in self.scores_3d.items():
                 text = self.small_font.render(f"{name}: {value:.1f}°", True, WHITE)
@@ -444,26 +444,26 @@ class VideoDisplay:
                 y_offset += 16
 
     def _get_risk_color(self, label: str) -> Tuple[int, int, int]:
-        """Retourne la couleur selon le niveau de risque."""
+        """Return the color based on the risk level."""
         label_lower = label.lower()
-        if "negligible" in label_lower or "sans" in label_lower:
+        if "negligible" in label_lower or "no" in label_lower:
             return GREEN
-        elif "low" in label_lower or "faible" in label_lower:
+        elif "low" in label_lower:
             return (100, 200, 255)
-        elif "medium" in label_lower or "moyen" in label_lower:
+        elif "medium" in label_lower:
             return ORANGE
-        elif "high" in label_lower or "élevé" in label_lower:
+        elif "high" in label_lower:
             return RED
-        elif "very" in label_lower or "très" in label_lower:
+        elif "very" in label_lower:
             return (200, 0, 100)
         return WHITE
 
 
 class ScoreButtonGroup:
     """
-    Groupe de petits boutons horizontaux pour sélectionner un score (0, 1, 2, 3).
+    Group of small horizontal buttons to select a score (0, 1, 2, 3).
 
-    Utilisé pour les paramètres REBA: charge, prise, activité.
+    Used for REBA parameters: load, grip, activity.
     """
 
     def __init__(
@@ -480,18 +480,18 @@ class ScoreButtonGroup:
         unselected_color: Tuple[int, int, int] = (50, 50, 60),
     ):
         """
-        Initialise un groupe de boutons de score.
+        Initialize a score button group.
 
         Args:
-            x, y: Position (coin supérieur gauche)
-            label: Label affiché à gauche des boutons
-            values: Liste des valeurs possibles (défaut: [0, 1, 2, 3])
-            callback: Fonction appelée avec la nouvelle valeur
-            initial_value: Valeur initiale sélectionnée
-            button_size: Taille des boutons carrés
-            spacing: Espacement entre les boutons
-            selected_color: Couleur du bouton sélectionné
-            unselected_color: Couleur des boutons non sélectionnés
+            x, y: Position (top-left corner)
+            label: Label displayed to the left of the buttons
+            values: List of possible values (default: [0, 1, 2, 3])
+            callback: Function called with the new value
+            initial_value: Initially selected value
+            button_size: Size of square buttons
+            spacing: Spacing between buttons
+            selected_color: Color for the selected button
+            unselected_color: Color for unselected buttons
         """
         self.x = x
         self.y = y
@@ -504,14 +504,14 @@ class ScoreButtonGroup:
         self.selected_color = selected_color
         self.unselected_color = unselected_color
 
-        # Police
+        # Fonts
         self.font = pygame.font.Font(None, 18)
         self.btn_font = pygame.font.Font(None, 20)
 
-        # Calculer la largeur du label
+        # Label width
         self.label_width = 55
 
-        # Créer les rectangles des boutons
+        # Create button rectangles
         self.buttons: List[Tuple[pygame.Rect, int]] = []
         btn_x = x + self.label_width
         for val in self.values:
@@ -522,23 +522,23 @@ class ScoreButtonGroup:
         self.hovered_index = -1
 
     def get_value(self) -> int:
-        """Retourne la valeur sélectionnée."""
+        """Return the selected value."""
         return self.selected_value
 
     def set_value(self, value: int) -> None:
-        """Définit la valeur sélectionnée."""
+        """Set the selected value."""
         if value in self.values:
             self.selected_value = value
 
     def draw(self, surface: pygame.Surface) -> None:
-        """Dessine le groupe de boutons."""
+        """Draw the button group."""
         # Label
         label_surface = self.font.render(self.label, True, LIGHT_GRAY)
         surface.blit(label_surface, (self.x, self.y + 6))
 
-        # Boutons
+        # Buttons
         for i, (rect, val) in enumerate(self.buttons):
-            # Couleur selon l'état
+            # Color based on state
             if val == self.selected_value:
                 color = self.selected_color
             elif i == self.hovered_index:
@@ -546,21 +546,21 @@ class ScoreButtonGroup:
             else:
                 color = self.unselected_color
 
-            # Rectangle du bouton
+            # Button rectangle
             pygame.draw.rect(surface, color, rect, border_radius=4)
             pygame.draw.rect(surface, LIGHT_GRAY, rect, 1, border_radius=4)
 
-            # Texte du bouton
+            # Button text
             text = self.btn_font.render(str(val), True, WHITE)
             text_rect = text.get_rect(center=rect.center)
             surface.blit(text, text_rect)
 
     def handle_event(self, event: pygame.event.Event) -> bool:
         """
-        Gère les événements.
+        Handle events.
 
         Returns:
-            True si une valeur a été sélectionnée
+            True if a value was selected
         """
         if event.type == pygame.MOUSEMOTION:
             self.hovered_index = -1
@@ -583,11 +583,11 @@ class ScoreButtonGroup:
 
 class ScoreGraph:
     """
-    Graphique temps réel des scores REBA 2D et 3D.
+    Real-time graph of REBA 2D and 3D scores.
 
-    Affiche deux courbes sur le même graphique:
-    - Vert: Score 3D
-    - Bleu: Score 2D
+    Displays two curves on the same chart:
+    - Green: 3D score
+    - Blue: 2D score
     """
 
     def __init__(
@@ -602,15 +602,15 @@ class ScoreGraph:
         color_2d: Tuple[int, int, int] = (100, 150, 255),
     ):
         """
-        Initialise le graphique.
+        Initialize the graph.
 
         Args:
-            x, y: Position du graphique
+            x, y: Graph position
             width, height: Dimensions
-            max_points: Nombre maximum de points affichés (frames)
-            bg_color: Couleur de fond
-            color_3d: Couleur de la courbe 3D
-            color_2d: Couleur de la courbe 2D
+            max_points: Maximum number of points displayed (frames)
+            bg_color: Background color
+            color_3d: Color of the 3D curve
+            color_2d: Color of the 2D curve
         """
         self.rect = pygame.Rect(x, y, width, height)
         self.max_points = max_points
@@ -618,31 +618,31 @@ class ScoreGraph:
         self.color_3d = color_3d
         self.color_2d = color_2d
 
-        # Historique des scores
+        # Score history
         self.scores_3d: List[int] = []
         self.scores_2d: List[int] = []
 
-        # Plage Y (scores REBA: 1-12)
+        # Y range (REBA scores: 1-12)
         self.y_min = 1
         self.y_max = 12
 
-        # Marges internes pour les axes
+        # Internal margins for axes
         self.margin_left = 35
         self.margin_right = 10
         self.margin_top = 15
         self.margin_bottom = 20
 
-        # Polices
+        # Fonts
         self.font = pygame.font.Font(None, 16)
         self.title_font = pygame.font.Font(None, 18)
 
     def add_scores(self, score_3d: Optional[int], score_2d: Optional[int] = None) -> None:
         """
-        Ajoute une paire de scores à l'historique.
+        Add a pair of scores to the history.
 
         Args:
-            score_3d: Score REBA 3D (ou principal si pas de 2D)
-            score_2d: Score REBA 2D (optionnel, pour comparaison)
+            score_3d: 3D REBA score (or main score if no 2D)
+            score_2d: 2D REBA score (optional, for comparison)
         """
         if score_3d is not None:
             self.scores_3d.append(score_3d)
@@ -655,19 +655,19 @@ class ScoreGraph:
                 self.scores_2d.pop(0)
 
     def clear(self) -> None:
-        """Efface l'historique des scores."""
+        """Clear the score history."""
         self.scores_3d.clear()
         self.scores_2d.clear()
 
     def _value_to_y(self, value: int) -> int:
-        """Convertit un score REBA en coordonnée Y."""
+        """Convert a REBA score to a Y coordinate."""
         graph_height = self.rect.height - self.margin_top - self.margin_bottom
-        # Inverser Y (haut = valeurs hautes)
+        # Invert Y (top = high values)
         ratio = (value - self.y_min) / (self.y_max - self.y_min)
         return int(self.rect.y + self.margin_top + graph_height * (1 - ratio))
 
     def _index_to_x(self, index: int, total: int) -> int:
-        """Convertit un index en coordonnée X."""
+        """Convert an index to an X coordinate."""
         graph_width = self.rect.width - self.margin_left - self.margin_right
         if total <= 1:
             return self.rect.x + self.margin_left
@@ -675,58 +675,58 @@ class ScoreGraph:
         return int(self.rect.x + self.margin_left + graph_width * ratio)
 
     def draw(self, surface: pygame.Surface) -> None:
-        """Dessine le graphique."""
-        # Fond
+        """Draw the graph."""
+        # Background
         pygame.draw.rect(surface, self.bg_color, self.rect)
         pygame.draw.rect(surface, GRAY, self.rect, 1)
 
-        # Zone de dessin du graphique
+        # Graph drawing area
         graph_x = self.rect.x + self.margin_left
         graph_y = self.rect.y + self.margin_top
         graph_width = self.rect.width - self.margin_left - self.margin_right
         graph_height = self.rect.height - self.margin_top - self.margin_bottom
 
-        # Grille horizontale (niveaux de risque)
+        # Horizontal grid (risk levels)
         risk_levels = [
             (1, "Negligible", (0, 100, 0)),
-            (3, "Faible", (100, 150, 0)),
-            (6, "Moyen", (200, 150, 0)),
-            (10, "Élevé", (200, 50, 0)),
-            (12, "Très élevé", (150, 0, 50)),
+            (3, "Low", (100, 150, 0)),
+            (6, "Medium", (200, 150, 0)),
+            (10, "High", (200, 50, 0)),
+            (12, "Very high", (150, 0, 50)),
         ]
 
         for level, label, color in risk_levels:
             y = self._value_to_y(level)
-            # Ligne de grille
+            # Grid line
             pygame.draw.line(
                 surface, (50, 50, 60),
                 (graph_x, y), (graph_x + graph_width, y), 1
             )
-            # Label Y
+            # Y label
             text = self.font.render(str(level), True, LIGHT_GRAY)
             surface.blit(text, (self.rect.x + 5, y - 6))
 
-        # Axe Y
+        # Y axis
         pygame.draw.line(
             surface, LIGHT_GRAY,
             (graph_x, graph_y), (graph_x, graph_y + graph_height), 1
         )
 
-        # Axe X
+        # X axis
         pygame.draw.line(
             surface, LIGHT_GRAY,
             (graph_x, graph_y + graph_height),
             (graph_x + graph_width, graph_y + graph_height), 1
         )
 
-        # Label Frames
+        # Frames label
         frames_text = self.font.render("Frames", True, LIGHT_GRAY)
         surface.blit(
             frames_text,
             (self.rect.x + self.rect.width - 50, self.rect.y + self.rect.height - 15)
         )
 
-        # Dessiner la courbe 3D (verte)
+        # Draw the 3D curve (green)
         if len(self.scores_3d) > 1:
             points_3d = []
             for i, score in enumerate(self.scores_3d):
@@ -735,7 +735,7 @@ class ScoreGraph:
                 points_3d.append((x, y))
             pygame.draw.lines(surface, self.color_3d, False, points_3d, 2)
 
-        # Dessiner la courbe 2D (bleue)
+        # Draw the 2D curve (blue)
         if len(self.scores_2d) > 1:
             points_2d = []
             for i, score in enumerate(self.scores_2d):
@@ -744,7 +744,7 @@ class ScoreGraph:
                 points_2d.append((x, y))
             pygame.draw.lines(surface, self.color_2d, False, points_2d, 2)
 
-        # Légende
+        # Legend
         legend_x = graph_x + 10
         legend_y = self.rect.y + 3
 
@@ -764,7 +764,7 @@ class ScoreGraph:
         text_2d = self.font.render("2D", True, self.color_2d)
         surface.blit(text_2d, (legend_x + 85, legend_y))
 
-        # Score actuel
+        # Current score
         if self.scores_3d:
             current_3d = self.scores_3d[-1]
             text = self.font.render(f"3D:{current_3d}", True, self.color_3d)
@@ -774,3 +774,334 @@ class ScoreGraph:
             current_2d = self.scores_2d[-1]
             text = self.font.render(f"2D:{current_2d}", True, self.color_2d)
             surface.blit(text, (self.rect.x + self.rect.width - 50, legend_y))
+
+
+class RiskTimeline:
+    """
+    Visual timeline displaying REBA risk intervals.
+
+    Displays a horizontal bar with colored zones based on the risk level.
+    """
+
+    def __init__(
+        self,
+        x: int,
+        y: int,
+        width: int,
+        height: int,
+        bg_color: Tuple[int, int, int] = (40, 40, 40)
+    ):
+        """
+        Initialize the risk timeline.
+
+        Args:
+            x, y: Position
+            width, height: Dimensions
+            bg_color: Background color
+        """
+        self.rect = pygame.Rect(x, y, width, height)
+        self.bg_color = bg_color
+        self.risk_data = None
+        self.total_frames = 0
+        self.current_frame = 0
+
+        # Colors per risk level (matching risk_times.json)
+        self.colors = {
+            "negligible risk": (0, 200, 0),      # Green
+            "medium risk": (255, 150, 0),        # Orange
+            "high risk": (255, 0, 0),            # Red
+            "very high risk": (150, 0, 150),     # Purple
+            "invalid": (128, 128, 128)           # Gray
+        }
+
+        self.font = pygame.font.Font(None, 16)
+
+    def set_data(self, risk_data: dict, total_frames: int) -> None:
+        """
+        Update the risk data.
+
+        Args:
+            risk_data: Dictionary of risk intervals
+            total_frames: Total number of frames
+        """
+        self.risk_data = risk_data
+        self.total_frames = total_frames
+
+    def set_current_frame(self, frame: int) -> None:
+        """
+        Set the current frame.
+
+        Args:
+            frame: Current frame number
+        """
+        self.current_frame = frame
+
+    def clear(self) -> None:
+        """Clear all risk timeline data."""
+        self.risk_data = None
+        self.total_frames = 0
+        self.current_frame = 0
+
+    def draw(self, surface: pygame.Surface) -> None:
+        """Draw the timeline."""
+        if not self.risk_data or self.total_frames == 0:
+            # Draw nothing if there is no data
+            return
+
+        # Background
+        pygame.draw.rect(surface, self.bg_color, self.rect)
+
+        # Draw each risk interval
+        for risk_level, intervals in self.risk_data.items():
+            color = self.colors.get(risk_level, (255, 255, 255))
+
+            for start_frame, end_frame in intervals:
+                # Normalize positions
+                x_start = self.rect.x + int((start_frame / self.total_frames) * self.rect.width)
+                x_end = self.rect.x + int((end_frame / self.total_frames) * self.rect.width)
+
+                # Ensure a minimum visible width (1 pixel)
+                if x_end <= x_start:
+                    x_end = x_start + 1
+
+                # Draw the risk rectangle
+                risk_rect = pygame.Rect(
+                    x_start,
+                    self.rect.y,
+                    x_end - x_start,
+                    self.rect.height
+                )
+                pygame.draw.rect(surface, color, risk_rect)
+
+        # Current frame indicator (white vertical line)
+        if self.current_frame > 0:
+            x_current = self.rect.x + int((self.current_frame / self.total_frames) * self.rect.width)
+            pygame.draw.line(
+                surface,
+                WHITE,
+                (x_current, self.rect.y),
+                (x_current, self.rect.y + self.rect.height),
+                2
+            )
+
+        # Border
+        pygame.draw.rect(surface, (100, 100, 100), self.rect, 2)
+
+        # Label
+        label = self.font.render("Risk timeline", True, LIGHT_GRAY)
+        surface.blit(label, (self.rect.x + 5, self.rect.y - 15))
+
+
+class FileSelector:
+    """
+    Simple file selector in Pygame.
+
+    Displays a list of files in a directory and allows selection.
+    """
+
+    def __init__(
+        self,
+        directory: str = ".",
+        extension: str = ".json",
+        title: str = "Select a file"
+    ):
+        """
+        Initialize the file selector.
+
+        Args:
+            directory: Starting directory
+            extension: File extension to display
+            title: Selection window title
+        """
+        import os
+
+        self.directory = os.path.abspath(directory)
+        self.extension = extension
+        self.title = title
+        self.selected_file = None
+        self.cancelled = False
+
+        # Scan files
+        self.files = self._scan_directory()
+        self.selected_index = 0
+        self.scroll_offset = 0
+
+        # UI config
+        self.width = 600
+        self.height = 500
+        self.font = pygame.font.Font(None, 20)
+        self.title_font = pygame.font.Font(None, 28)
+
+    def _scan_directory(self) -> list:
+        """Scan the directory for files with the given extension."""
+        import os
+
+        files = []
+
+        # Add parent directory as the first option
+        parent_dir = os.path.dirname(self.directory)
+        if parent_dir:
+            files.append((".. (Up)", parent_dir, True))
+
+        try:
+            for item in sorted(os.listdir(self.directory)):
+                full_path = os.path.join(self.directory, item)
+
+                if os.path.isdir(full_path):
+                    files.append((f"📁 {item}", full_path, True))
+                elif item.endswith(self.extension):
+                    files.append((f"📄 {item}", full_path, False))
+        except PermissionError:
+            pass
+
+        return files
+
+    def run(self) -> Optional[str]:
+        """
+        Show the selector and return the selected file.
+
+        Returns:
+            Selected file path or None if cancelled
+        """
+        screen = pygame.display.set_mode((self.width, self.height))
+        pygame.display.set_caption(self.title)
+        clock = pygame.time.Clock()
+
+        running = True
+        max_visible = 15  # Number of visible files
+
+        while running:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    self.cancelled = True
+                    running = False
+
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE:
+                        self.cancelled = True
+                        running = False
+                    elif event.key == pygame.K_UP:
+                        self.selected_index = max(0, self.selected_index - 1)
+                        # Adjust scroll
+                        if self.selected_index < self.scroll_offset:
+                            self.scroll_offset = self.selected_index
+                    elif event.key == pygame.K_DOWN:
+                        self.selected_index = min(len(self.files) - 1, self.selected_index + 1)
+                        # Adjust scroll
+                        if self.selected_index >= self.scroll_offset + max_visible:
+                            self.scroll_offset = self.selected_index - max_visible + 1
+                    elif event.key == pygame.K_RETURN:
+                        if self.files:
+                            name, path, is_dir = self.files[self.selected_index]
+                            if is_dir:
+                                # Navigate into directory
+                                self.directory = path
+                                self.files = self._scan_directory()
+                                self.selected_index = 0
+                                self.scroll_offset = 0
+                            else:
+                                # File selected
+                                self.selected_file = path
+                                running = False
+
+                elif event.type == pygame.MOUSEBUTTONDOWN:
+                    if event.button == 1:  # Left click
+                        # Check if click on a file
+                        mouse_y = event.pos[1]
+                        header_height = 60
+                        item_height = 25
+
+                        if mouse_y > header_height:
+                            clicked_index = (mouse_y - header_height) // item_height + self.scroll_offset
+                            if 0 <= clicked_index < len(self.files):
+                                name, path, is_dir = self.files[clicked_index]
+                                if is_dir:
+                                    self.directory = path
+                                    self.files = self._scan_directory()
+                                    self.selected_index = 0
+                                    self.scroll_offset = 0
+                                else:
+                                    self.selected_file = path
+                                    running = False
+
+                        # Cancel button
+                        cancel_rect = pygame.Rect(self.width - 110, self.height - 40, 100, 30)
+                        if cancel_rect.collidepoint(event.pos):
+                            self.cancelled = True
+                            running = False
+
+                elif event.type == pygame.MOUSEWHEEL:
+                    # Mouse wheel scroll
+                    self.scroll_offset = max(0, min(
+                        len(self.files) - max_visible,
+                        self.scroll_offset - event.y
+                    ))
+
+            # Draw UI
+            screen.fill((30, 30, 40))
+
+            # Title
+            title_surface = self.title_font.render(self.title, True, WHITE)
+            screen.blit(title_surface, (10, 10))
+
+            # Current directory
+            import os
+            current_dir = os.path.basename(self.directory) or self.directory
+            dir_surface = self.font.render(f"Directory: {current_dir}", True, GRAY)
+            screen.blit(dir_surface, (10, 40))
+
+            # Separator line
+            pygame.draw.line(screen, GRAY, (0, 60), (self.width, 60), 2)
+
+            # File list
+            y_offset = 70
+            item_height = 25
+
+            visible_files = self.files[self.scroll_offset:self.scroll_offset + max_visible]
+
+            for i, (name, path, is_dir) in enumerate(visible_files):
+                actual_index = i + self.scroll_offset
+
+                # Background for selection
+                if actual_index == self.selected_index:
+                    pygame.draw.rect(
+                        screen,
+                        (50, 50, 100),
+                        pygame.Rect(0, y_offset, self.width, item_height)
+                    )
+
+                # File/folder name
+                color = LIGHT_GRAY if is_dir else WHITE
+                text_surface = self.font.render(name, True, color)
+                screen.blit(text_surface, (10, y_offset + 3))
+
+                y_offset += item_height
+
+            # Scroll indicator
+            if len(self.files) > max_visible:
+                scroll_bar_height = max(20, (max_visible / len(self.files)) * (max_visible * item_height))
+                scroll_bar_y = 70 + (self.scroll_offset / len(self.files)) * (max_visible * item_height)
+                pygame.draw.rect(
+                    screen,
+                    GRAY,
+                    pygame.Rect(self.width - 10, scroll_bar_y, 8, scroll_bar_height),
+                    border_radius=4
+                )
+
+            # Bottom separator line
+            pygame.draw.line(screen, GRAY, (0, self.height - 50), (self.width, self.height - 50), 2)
+
+            # Cancel button
+            cancel_rect = pygame.Rect(self.width - 110, self.height - 40, 100, 30)
+            pygame.draw.rect(screen, RED, cancel_rect, border_radius=5)
+            cancel_text = self.font.render("Cancel", True, WHITE)
+            screen.blit(cancel_text, (self.width - 90, self.height - 35))
+
+            # Instructions
+            help_text = self.font.render("↑↓: Navigate | Enter: Select | Esc: Cancel", True, GRAY)
+            screen.blit(help_text, (10, self.height - 35))
+
+            pygame.display.flip()
+            clock.tick(30)
+
+        return self.selected_file if not self.cancelled else None
