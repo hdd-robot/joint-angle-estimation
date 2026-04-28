@@ -1,7 +1,31 @@
 import os as _os
+
 import pandas as pd
 import matplotlib
 matplotlib.use("Agg")
+
+# ── Global font sizes — référence pour une figure de REF_W pouces de large ─
+REF_W     = 8    # largeur de référence (pouces) pour le scaling
+FS_TITLE  = 24   # titres
+FS_LABEL  = 20   # axes x/y
+FS_TICK   = 18   # graduations
+FS_ANNOT  = 18   # chiffres dans les cases
+FS_LEGEND = 18   # légendes
+FS_TEXT   = 18   # texte inline (barres, etc.)
+
+def fs(base, fig_w):
+    """Scale base fontsize proportionally to the actual figure width."""
+    return max(8, int(round(base * fig_w / REF_W)))
+# ──────────────────────────────────────────────────────────────────────────
+
+matplotlib.rcParams.update({
+    "font.size":        FS_TICK,
+    "axes.titlesize":   FS_TITLE,
+    "axes.labelsize":   FS_LABEL,
+    "xtick.labelsize":  FS_TICK,
+    "ytick.labelsize":  FS_TICK,
+    "legend.fontsize":  FS_LEGEND,
+})
 from matplotlib.colors import LinearSegmentedColormap
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -99,17 +123,16 @@ if {"Person_ID", "Window_ID", "Error"}.issubset(df.columns):
         mask=mask,
         annot=annot,
         fmt="",
-        annot_kws={"size": 14, "weight": "bold"},
+        annot_kws={"size": fs(FS_ANNOT, fig_w / 2), "weight": "bold"},
         linewidths=1,
         linecolor="white",
-        cbar_kws={"label": "Error (REBA_2D - REBA_3D)", "shrink": 0.8},
+        cbar=False,
     )
-    ax.figure.axes[-1].yaxis.label.set_size(13)  # colorbar label
-    plt.title("Difference REBA 2D vs 3D by Person and Window", fontsize=16, weight="bold", pad=12)
-    plt.xlabel("Window", fontsize=14)
-    plt.ylabel("Person ID", fontsize=14)
-    plt.xticks(fontsize=11)
-    plt.yticks(fontsize=12, rotation=0)
+    plt.title("Difference REBA 2D vs 3D by Person and Window", fontsize=fs(FS_TITLE, fig_w / 2), weight="bold", pad=12)
+    plt.xlabel("Window", fontsize=fs(FS_LABEL, fig_w / 2))
+    plt.ylabel("Person ID", fontsize=fs(FS_LABEL, fig_w / 2))
+    plt.xticks(fontsize=fs(FS_TICK, fig_w / 2))
+    plt.yticks(fontsize=fs(FS_TICK, fig_w / 2), rotation=0)
     plt.tight_layout()
     plt.savefig(_os.path.join(OUTPUT_DIR, "heatmap_error.png"), dpi=300, bbox_inches="tight")
     plt.close()
@@ -125,16 +148,17 @@ if "Error" in df.columns:
     counts = [int((error_vals == v).sum()) for v in unique_vals]
     labels = [str(int(v)) for v in unique_vals]
 
-    plt.figure(figsize=(7, 7))
+    _fw = 7
+    plt.figure(figsize=(_fw, 7))
     bars = plt.bar(labels, counts, width=0.6, color="#2171B5", edgecolor="black", linewidth=1)
     for bar, count in zip(bars, counts):
         plt.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 3,
-                 str(count), ha="center", va="bottom", fontsize=14, weight="bold")
-    plt.title("Global Histogram of Errors (REBA 2D - 3D)", fontsize=15, weight="bold", pad=12)
-    plt.xlabel("Error", fontsize=14)
-    plt.ylabel("Frequency", fontsize=14)
-    plt.xticks(fontsize=13)
-    plt.yticks(fontsize=13)
+                 str(count), ha="center", va="bottom", fontsize=fs(FS_TEXT, _fw), weight="bold")
+    plt.title("Global Histogram of Errors (REBA 2D - 3D)", fontsize=fs(FS_TITLE, _fw), weight="bold", pad=12)
+    plt.xlabel("Error", fontsize=fs(FS_LABEL, _fw))
+    plt.ylabel("Frequency", fontsize=fs(FS_LABEL, _fw))
+    plt.xticks(fontsize=fs(FS_TICK, _fw))
+    plt.yticks(fontsize=fs(FS_TICK, _fw))
     plt.grid(False)
     plt.tight_layout()
     plt.savefig(_os.path.join(OUTPUT_DIR, "histogram_error.png"), dpi=300, bbox_inches="tight")
@@ -155,27 +179,30 @@ confusion = confusion.reindex(index=risk_order_valid, columns=risk_order_valid, 
 
 print(confusion)
 
-plt.figure(figsize=(8, 7))
+_fw = 8
+plt.figure(figsize=(_fw, _fw))
 ax = sns.heatmap(
     confusion,
     annot=True,
     fmt="d",
     cmap="Blues",
-    annot_kws={"size": 20, "weight": "bold"},
+    annot_kws={"size": fs(FS_ANNOT + 4, _fw), "weight": "bold"},
     linewidths=2,
     linecolor="black",
     square=True,
-    cbar_kws={"shrink": 0.8},
+    cbar=False,
 )
+for t in ax.texts:
+    t.set_rotation(45)
 ax.axhline(0, color="black", lw=3)
 ax.axhline(confusion.shape[0], color="black", lw=3)
 ax.axvline(0, color="black", lw=3)
 ax.axvline(confusion.shape[1], color="black", lw=3)
-plt.title("Confusion Matrix: REBA 2D vs 3D", fontsize=16, weight="bold", pad=12)
-plt.xlabel("REBA 3D (Reference)", fontsize=15)
-plt.ylabel("REBA 2D", fontsize=15)
-plt.xticks(fontsize=13, rotation=30, ha="right")
-plt.yticks(fontsize=13, rotation=0)
+plt.title("Confusion Matrix: REBA 2D vs 3D", fontsize=fs(FS_TITLE, _fw), weight="bold", pad=12)
+plt.xlabel("REBA 3D (Reference)", fontsize=fs(FS_LABEL, _fw))
+plt.ylabel("REBA 2D", fontsize=fs(FS_LABEL, _fw))
+plt.xticks(fontsize=fs(FS_TICK, _fw), rotation=30, ha="right")
+plt.yticks(fontsize=fs(FS_TICK, _fw), rotation=0)
 plt.tight_layout()
 plt.savefig(_os.path.join(OUTPUT_DIR, "confusion_matrix.png"), dpi=300, bbox_inches="tight")
 plt.close()
@@ -345,6 +372,17 @@ def _short_label(var_name):
     """Strip _2D/_3D suffix for cleaner labels."""
     return re.sub(r"_(2D|3D)$", "", var_name)
 
+def _wrap_label(label, max_len=15):
+    """Wrap label to two lines at the nearest _ if longer than max_len."""
+    if len(label) <= max_len:
+        return label
+    idx = label.rfind("_", 0, max_len)
+    if idx == -1:
+        idx = label.find("_")
+    if idx == -1:
+        return label
+    return label[:idx] + "\n" + label[idx + 1:]
+
 LOADING_NORM_THRESH = 0.35  # only show arrows with norm >= this
 
 def plot_correlation_plane(pca, df_subset, pc_x, pc_y, title):
@@ -352,8 +390,9 @@ def plot_correlation_plane(pca, df_subset, pc_x, pc_y, title):
         print(f"[WARN] {title}: pas assez de composantes pour PC{pc_x+1}/PC{pc_y+1}.")
         return
 
-    fig, ax = plt.subplots(figsize=(10, 10))
-    circle = plt.Circle((0, 0), 1, facecolor="none", edgecolor="black", linestyle="--", lw=1.5)
+    ARROW_SCALE = 1.1
+    fig, ax = plt.subplots(figsize=(16, 16))
+    circle = plt.Circle((0, 0), ARROW_SCALE, facecolor="none", edgecolor="black", linestyle="--", lw=1.5)
     ax.add_artist(circle)
 
     loadings = pca.components_.T[:, [pc_x, pc_y]]
@@ -364,38 +403,42 @@ def plot_correlation_plane(pca, df_subset, pc_x, pc_y, title):
         lx, ly = loadings[i, 0], loadings[i, 1]
         norm = np.sqrt(lx**2 + ly**2)
         if norm < LOADING_NORM_THRESH:
-            ax.annotate("", xy=(lx, ly), xytext=(0, 0),
+            ax.annotate("", xy=(lx * ARROW_SCALE, ly * ARROW_SCALE), xytext=(0, 0),
                         arrowprops=dict(arrowstyle="->,head_width=0.25,head_length=0.15",
                                         color="#AAAAAA", lw=2.5))
         else:
             arrow_angle = np.degrees(np.arctan2(ly, lx))
             strong.append({"var": var, "lx": lx, "ly": ly, "norm": norm, "arrow_angle": arrow_angle})
 
-    # Detect overlapping labels and nudge ±3 degrees
-    NUDGE_DEG = 3.0
-    OVERLAP_THRESH = 12.0  # degrees apart to consider overlapping
+    # Detect overlapping labels and nudge — multi-pass
+    NUDGE_DEG = 10.0
+    OVERLAP_THRESH = 22.0  # degrees apart to consider overlapping
     nudges = [0.0] * len(strong)
-    for i in range(len(strong)):
-        for j in range(i + 1, len(strong)):
-            diff = abs(strong[i]["arrow_angle"] - strong[j]["arrow_angle"])
-            if diff > 180:
-                diff = 360 - diff
-            if diff < OVERLAP_THRESH:
-                # Push the upper one up, lower one down
-                if strong[i]["ly"] >= strong[j]["ly"]:
-                    nudges[i] += NUDGE_DEG
-                    nudges[j] -= NUDGE_DEG
-                else:
-                    nudges[i] -= NUDGE_DEG
-                    nudges[j] += NUDGE_DEG
+    for _pass in range(4):
+        changed = False
+        for i in range(len(strong)):
+            for j in range(i + 1, len(strong)):
+                diff = abs((strong[i]["arrow_angle"] + nudges[i]) - (strong[j]["arrow_angle"] + nudges[j]))
+                if diff > 180:
+                    diff = 360 - diff
+                if diff < OVERLAP_THRESH:
+                    if strong[i]["ly"] >= strong[j]["ly"]:
+                        nudges[i] += NUDGE_DEG
+                        nudges[j] -= NUDGE_DEG
+                    else:
+                        nudges[i] -= NUDGE_DEG
+                        nudges[j] += NUDGE_DEG
+                    changed = True
+        if not changed:
+            break
 
     # Second pass: draw arrows and labels
     for idx, s in enumerate(strong):
         lx, ly, var = s["lx"], s["ly"], s["var"]
         color = _segment_color(var)
-        label = _short_label(var)
+        label = _wrap_label(_short_label(var))
 
-        ax.annotate("", xy=(lx, ly), xytext=(0, 0),
+        ax.annotate("", xy=(lx * ARROW_SCALE, ly * ARROW_SCALE), xytext=(0, 0),
                     arrowprops=dict(arrowstyle="->,head_width=0.3,head_length=0.18",
                                     color=color, lw=3))
 
@@ -409,21 +452,21 @@ def plot_correlation_plane(pca, df_subset, pc_x, pc_y, title):
 
         # Place label at nudged position outside arrow tip
         rad = np.radians(angle_deg)
-        r = s["norm"] * 1.08
+        r = s["norm"] * 1.15
         tx, ty = r * np.cos(rad), r * np.sin(rad)
         ha = "left" if np.cos(rad) >= 0 else "right"
 
-        ax.text(tx, ty, label, color=color, fontsize=15, weight="bold",
+        ax.text(tx, ty, label, color=color, fontsize=36, weight="bold",
                 ha=ha, va="center", rotation=text_angle, rotation_mode="anchor")
 
-    ax.set_xlim(-1.2, 1.2)
-    ax.set_ylim(-1.2, 1.2)
-    ax.set_title(f"Correlation Plane — {title} — PC{pc_x+1} vs PC{pc_y+1}", fontsize=20, weight="bold", pad=15)
+    ax.set_xlim(-1.5, 1.5)
+    ax.set_ylim(-1.5, 1.5)
+    ax.set_title(f"Correlation Plane — {title} — PC{pc_x+1} vs PC{pc_y+1}", fontsize=37, weight="bold", pad=15)
     ax.axhline(0, color="grey", lw=0.8)
     ax.axvline(0, color="grey", lw=0.8)
-    ax.set_xlabel(f"PC{pc_x+1} ({pca.explained_variance_ratio_[pc_x]*100:.1f}% var)", fontsize=17)
-    ax.set_ylabel(f"PC{pc_y+1} ({pca.explained_variance_ratio_[pc_y]*100:.1f}% var)", fontsize=17)
-    ax.tick_params(labelsize=14)
+    ax.set_xlabel(f"PC{pc_x+1} ({pca.explained_variance_ratio_[pc_x]*100:.1f}% var)", fontsize=36)
+    ax.set_ylabel(f"PC{pc_y+1} ({pca.explained_variance_ratio_[pc_y]*100:.1f}% var)", fontsize=36)
+    ax.tick_params(labelsize=28)
     ax.set_aspect("equal")
     ax.grid(False)
     plt.tight_layout()
@@ -472,18 +515,19 @@ if enough_for_pca(df_pca_clean_2d) and enough_for_pca(df_pca_clean_3d):
     var_cum_2d = cumulative_variance(df_pca_clean_2d)
     var_cum_3d = cumulative_variance(df_pca_clean_3d)
 
-    fig, ax = plt.subplots(figsize=(9, 7))
+    _fw = 12
+    fig, ax = plt.subplots(figsize=(_fw, 9))
     ax.plot(range(1, len(var_cum_2d) + 1), var_cum_2d * 100,
             marker="o", markersize=10, lw=2.5, color="#2171B5", label="2D Angles")
     ax.plot(range(1, len(var_cum_3d) + 1), var_cum_3d * 100,
             marker="s", markersize=10, lw=2.5, color="#E41A1C", label="3D Angles")
     ax.axhline(80, color="grey", ls="--", lw=1.2)
-    ax.text(0.6, 81, "80%", fontsize=13, color="grey", weight="bold")
-    ax.set_xlabel("Number of Principal Components", fontsize=15)
-    ax.set_ylabel("Cumulative Explained Variance (%)", fontsize=15)
-    ax.set_title("Cumulative Explained Variance\n2D Angles vs 3D Angles", fontsize=17, weight="bold", pad=12)
-    ax.legend(fontsize=14, frameon=True, fancybox=True, shadow=True)
-    ax.tick_params(labelsize=13)
+    ax.text(0.6, 81, "80%", fontsize=fs(FS_TEXT, _fw), color="grey", weight="bold")
+    ax.set_xlabel("Number of Principal Components", fontsize=fs(FS_LABEL, _fw))
+    ax.set_ylabel("Cumulative Explained Variance (%)", fontsize=fs(FS_LABEL, _fw))
+    ax.set_title("Cumulative Explained Variance\n2D Angles vs 3D Angles", fontsize=fs(FS_TITLE, _fw), weight="bold", pad=12)
+    ax.legend(fontsize=fs(FS_LEGEND, _fw), frameon=True, fancybox=True, shadow=True)
+    ax.tick_params(labelsize=fs(FS_TICK, _fw))
     ax.set_xticks(range(1, max(len(var_cum_2d), len(var_cum_3d)) + 1))
     ax.grid(True, alpha=0.3)
     plt.tight_layout()
@@ -519,7 +563,7 @@ else:
 # ============================================================
 # Concatenated PCA correlation planes (1 row x 4 columns)
 # ============================================================
-from PIL import Image as _PILImage
+from PIL import Image as _PILImage, ImageDraw as _PILDraw, ImageFont as _PILFont
 
 _pca_panels = [
     "correlation_plane_angles_2d_pc1_pc2.png",
@@ -675,7 +719,7 @@ def plot_lower_triangle_heatmap(mat: pd.DataFrame, title: str, out_png: str, sig
     fig_size = max(10, 0.6 * n)
 
     plt.figure(figsize=(fig_size, fig_size))
-    sns.heatmap(
+    ax = sns.heatmap(
         mat,
         mask=mask,
         annot=annot,
@@ -684,11 +728,14 @@ def plot_lower_triangle_heatmap(mat: pd.DataFrame, title: str, out_png: str, sig
         square=True,
         linewidths=0.5,
         linecolor="white",
-        cbar_kws={"label": "r"}
+        annot_kws={"size": fs(FS_ANNOT, fig_size / 2)},
+        cbar=False,
     )
-    plt.title(title)
-    plt.xticks(rotation=45, ha="right")
-    plt.yticks(rotation=0)
+    for t in ax.texts:
+        t.set_rotation(45)
+    plt.title(title, fontsize=fs(FS_TITLE, fig_size / 2), weight="bold")
+    plt.xticks(rotation=45, ha="right", fontsize=fs(FS_TICK, fig_size / 2))
+    plt.yticks(rotation=0, fontsize=fs(FS_TICK, fig_size / 2))
     plt.tight_layout()
     plt.savefig(_os.path.join(OUTPUT_DIR, out_png), dpi=300, bbox_inches="tight")
     plt.close()
@@ -720,7 +767,7 @@ plot_lower_triangle_heatmap(
 # SPLIT correlation into 3 sub-matrices (2D, 3D, cross 2D vs 3D)
 # ============================================================
 
-def split_heatmap(corr_mat, row_cols, col_cols, title, out_png, lower_triangle=False):
+def split_heatmap(corr_mat, row_cols, col_cols, title, out_png, lower_triangle=False, show_cbar=False):
     """Plot a rectangular sub-matrix of correlations with readable fonts."""
     row_cols = [c for c in row_cols if c in corr_mat.columns]
     col_cols = [c for c in col_cols if c in corr_mat.columns]
@@ -740,8 +787,8 @@ def split_heatmap(corr_mat, row_cols, col_cols, title, out_png, lower_triangle=F
     annot.values[mask] = ""
 
     n_rows, n_cols = sub.shape
-    fig_w = max(8, 0.65 * n_cols + 2)
-    fig_h = max(5, 0.5 * n_rows + 2)
+    fig_w = max(10, 0.9 * n_cols + 2)
+    fig_h = max(7,  0.7 * n_rows + 2)
 
     plt.figure(figsize=(fig_w, fig_h))
     sns.heatmap(
@@ -752,15 +799,18 @@ def split_heatmap(corr_mat, row_cols, col_cols, title, out_png, lower_triangle=F
         cmap="coolwarm",
         center=0,
         vmin=-1, vmax=1,
-        annot_kws={"size": 12, "weight": "bold"},
+        annot_kws={"size": fs(FS_ANNOT, fig_w / 1.4)},
         linewidths=1,
         linecolor="white",
         square=False,
-        cbar_kws={"label": "r", "shrink": 0.8},
+        cbar=show_cbar,
+        cbar_kws={"label": "Pearson r", "shrink": 0.8} if show_cbar else {},
     )
-    plt.title(title, fontsize=16, weight="bold", pad=12)
-    plt.xticks(fontsize=13, rotation=45, ha="right")
-    plt.yticks(fontsize=13, rotation=0)
+    for t in plt.gca().texts:
+        t.set_rotation(45)
+    plt.title(title, fontsize=fs(FS_TITLE, fig_w / 1.4), weight="bold", pad=12)
+    plt.xticks(fontsize=fs(FS_TICK, fig_w / 1.4), rotation=45, ha="right")
+    plt.yticks(fontsize=fs(FS_TICK, fig_w / 1.4), rotation=0)
     plt.tight_layout()
     plt.savefig(_os.path.join(OUTPUT_DIR, out_png), dpi=300, bbox_inches="tight")
     plt.close()
@@ -791,7 +841,8 @@ split_heatmap(
 split_heatmap(
     robust_to_plot, cols_2d_only, cols_3d_only,
     "Robust Correlations — 2D vs 3D (cross)",
-    "correlation_split_2d_vs_3d.png"
+    "correlation_split_2d_vs_3d.png",
+    show_cbar=True,
 )
 
 
@@ -810,13 +861,28 @@ if all(_os.path.exists(p) for p in _corr_split_paths):
     min_h = min(im.height for im in imgs)
     imgs = [im.resize((int(im.width * min_h / im.height), min_h), _PILImage.LANCZOS) for im in imgs]
     total_w = sum(im.width for im in imgs)
-    concat = _PILImage.new("RGB", (total_w, min_h), "white")
+    label_h = 240  # pixels for (a), (b), (c) labels
+    concat = _PILImage.new("RGB", (total_w, min_h + label_h), "white")
     x_offset = 0
     for im in imgs:
         concat.paste(im, (x_offset, 0))
         x_offset += im.width
+    # Draw (a), (b), (c) labels with PIL ImageDraw
+    draw = _PILDraw.Draw(concat)
+    try:
+        font = _PILFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 124)
+    except Exception:
+        font = _PILFont.load_default()
+    x_offset = 0
+    for im, lbl in zip(imgs, ["(a)", "(b)", "(c)"]):
+        bbox = draw.textbbox((0, 0), lbl, font=font)
+        tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+        cx = x_offset + im.width // 2 - tw // 2
+        cy = min_h + label_h // 2 - th // 2
+        draw.text((cx, cy), lbl, fill="black", font=font)
+        x_offset += im.width
     concat.save(_os.path.join(OUTPUT_DIR, "correlation_splits_all.png"), dpi=(300, 300))
-    print(f"[OK] Concatenated correlation splits -> correlation_splits_all.png ({total_w}x{min_h})")
+    print(f"[OK] Concatenated correlation splits -> correlation_splits_all.png ({total_w}x{min_h + label_h})")
 else:
     print("[WARN] Some correlation split images missing, skipping concatenation.")
 
@@ -832,7 +898,8 @@ if not df_significant.empty:
     n_pairs_dot = len(df_dot)
     fig_h = max(8, 0.4 * n_pairs_dot + 1.5)
 
-    fig, ax = plt.subplots(figsize=(10, fig_h))
+    _fw = 10
+    fig, ax = plt.subplots(figsize=(_fw, fig_h))
 
     colors = df_dot["Correlation"].apply(lambda r: "#2171B5" if r > 0 else "#DE2D26")
     sizes = df_dot["Abs_corr"] * 300
@@ -844,9 +911,9 @@ if not df_significant.empty:
         ax.plot([row["CI_lower"], row["CI_upper"]], [i, i], color="grey", lw=1, zorder=0)
 
     ax.set_yticks(range(n_pairs_dot))
-    ax.set_yticklabels(df_dot["pair"], fontsize=10)
-    ax.set_xlabel("Correlation (r)", fontsize=13)
-    ax.set_title("Top Robust Correlations (IC 95% excludes 0, |r| >= 0.3)", fontsize=14, weight="bold", pad=12)
+    ax.set_yticklabels(df_dot["pair"], fontsize=fs(FS_TICK, _fw))
+    ax.set_xlabel("Correlation (r)", fontsize=fs(FS_LABEL, _fw))
+    ax.set_title("Top Robust Correlations (IC 95% excludes 0, |r| >= 0.3)", fontsize=fs(FS_TITLE, _fw), weight="bold", pad=12)
     ax.axvline(0, color="black", lw=0.8, ls="--")
     ax.grid(axis="x", alpha=0.3)
     plt.tight_layout()
